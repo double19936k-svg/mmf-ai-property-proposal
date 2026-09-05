@@ -1,0 +1,11 @@
+{
+  "project_name": "示例滨海科技园",
+  "project_type": "产业园区",
+  "scenario": "完整物业服务方案",
+  "medium": "WORD",
+  "location": "示例城市滨海新区示例路100号",
+  "gross_area": "约12万平方米（示例，非真实项目）",
+  "provider_name": "mock",
+  "requirements": "虚构演示：秩序与安防、工程巡检、客户服务闭环、环境保洁。人员编制、SLA、收费均未确认，生成稿中不得写成已承诺数字。",
+  "notes": "This is fictional demo data for repository illustration only."
+}

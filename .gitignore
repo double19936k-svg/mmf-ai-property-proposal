@@ -1,0 +1,50 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+credentials/
+secrets/
+*.key
+*.pem
+provider_credentials*
+credential_store*
+config/providers.local.json
+config/user_settings.json
+
+# Runtime artifacts
+runs/
+logs/
+cache/
+temp/
+output/
+runtime/python/
+runtime/tmp/
+runtime/*.log
+runtime/*.pid
+runtime/*.json
+runtime/*.jsonl
+!runtime/.gitkeep
+
+# Python / Node
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+node_modules/
+app/node_modules/
+
+# Packaging and OS
+dist/
+*.egg-info/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local editor / tool state
+.idea/
+.vscode/
+*.swp
+tests/_reports/

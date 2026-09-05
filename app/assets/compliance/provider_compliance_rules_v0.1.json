@@ -1,0 +1,35 @@
+{
+  "schema_version": "provider-compliance-rules-v0.1",
+  "rules": [
+    {
+      "rule_id": "CG-001",
+      "name": "Unsupported Numeric Commitment",
+      "default_severity": "BLOCK"
+    },
+    {
+      "rule_id": "CG-002",
+      "name": "Conditional Knowledge Escalation",
+      "default_severity": "WARNING_OR_BLOCK"
+    },
+    {
+      "rule_id": "CG-003",
+      "name": "Unsupported Staffing Expansion",
+      "default_severity": "LEVEL_A_PASS_OR_WARNING_LEVEL_B_C_BLOCK",
+      "level_a": "service mechanism or existing-role responsibility: PASS/WARNING",
+      "level_b": "new fixed role or team without current_project_fact: BLOCK",
+      "level_c": "explicit headcount or establishment without current_project_fact: BLOCK"
+    },
+    {
+      "rule_id": "CG-004",
+      "name": "Uncited Material Claim",
+      "default_severity": "WARNING"
+    },
+    {
+      "rule_id": "CG-005",
+      "name": "Guardrail Leakage",
+      "default_severity": "BLOCK"
+    }
+  ],
+  "source": "MMF-004 Todd directive",
+  "grok_rule_design_status": "calibrated_by_grok-4.6-build_xhigh_20260829"
+}

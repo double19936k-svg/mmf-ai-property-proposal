@@ -1,0 +1,219 @@
+{
+  "schema_version": "formal-artifact-qa-v0.1",
+  "gate_id": "GATE-4",
+  "applies_after": "commitment_provenance_and_repair",
+  "outcomes": [
+    "PASS",
+    "AUTO_REPAIR",
+    "BLOCK"
+  ],
+  "classification_policy": {
+    "PASS": "no hygiene hit, or only allowed business parentheses",
+    "AUTO_REPAIR": "small local sanitize that does not change service commitments",
+    "BLOCK": "meaning-destroying damage, internal ID/meta leak that cannot be safely stripped, or too many hits"
+  },
+  "rules": [
+    {
+      "rule_id": "FAQ-001",
+      "name": "AnomalousMixedLanguage",
+      "trigger": "Chinese sentence contains unexpected English content word (greasy, placeholder English, code identifiers).",
+      "decision": "isolated likely-OCR/term → AUTO_REPAIR; unknown/trademark/code → BLOCK",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "再做地面、 greasy 点位以外的日常保洁",
+          "decision": "AUTO_REPAIR to 油污"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "SLA/KPI used because client uses the acronym (style C-011)",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-002",
+      "name": "IsolatedEnglishToken",
+      "trigger": "Bare Latin token length>=3 not in allowlist (SLA, KPI, PPT, WORD, IoT if client-named).",
+      "decision": "AUTO_REPAIR if dictionary map exists else BLOCK if in heading/table cell",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "greasy",
+          "decision": "AUTO_REPAIR"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "70000m²",
+          "decision": "PASS as Brief PROJECT_FACT unit"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-003",
+      "name": "BrokenQuotes",
+      "trigger": "Unbalanced “” \" ' or leaked escape sequences.",
+      "decision": "count<=2 AUTO_REPAIR; else BLOCK",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "不把“资料不得观看  (missing close)",
+          "decision": "AUTO_REPAIR/BLOCK"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "normal paired Chinese quotes",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-004",
+      "name": "JsonOrSerializationDebris",
+      "trigger": "Tokens { } [] ku_id source_type citation_registry provider_metadata or truncated JSON.",
+      "decision": "BLOCK",
+      "severity": "BLOCK",
+      "examples": [
+        {
+          "text": "\"source_type\": \"positive_ku\" in body",
+          "decision": "BLOCK"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "business numbering 1. 2. 3.",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-005",
+      "name": "InternalGovernanceLanguage",
+      "trigger": "本方案不预填|不要套用|不套用其他项目|不空套通用模型|历史项目|来源中|Guardrail|Candidate|内部审核|KU-|knowledge_unit|clarification_list.",
+      "decision": "sanitize banners AUTO_REPAIR; KU IDs or Guardrail names in body BLOCK",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "巡逻频次…本方案不预填",
+          "decision": "AUTO_REPAIR: delete clause, keep 以编制确认后执行 off-body or once in clarification"
+        },
+        {
+          "text": "不把“资料不得观看、抄写、复制、拍照”写成全场统一纪律",
+          "decision": "AUTO_REPAIR: drop quoted guardrail; keep 办公室内按甲方文件权限执行"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "不负责厂区车间设备维修 (user scope, customer-facing)",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-006",
+      "name": "AiSelfDescription",
+      "trigger": "根据已有知识库|当前资料不足|作为AI|模型认为|按提示要求.",
+      "decision": "AUTO_REPAIR if one sentence; BLOCK if a disclaimer section",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "根据已有知识库，本项目资料不足",
+          "decision": "AUTO_REPAIR/BLOCK"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "进场后与甲方核对服务界面 (natural next action)",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-007",
+      "name": "Placeholders",
+      "trigger": "TODO|TBD|占位|待填|XXX|【】 empty cells as 待确认 repeated.",
+      "decision": "BLOCK if in title/table critical cell; else AUTO_REPAIR strip",
+      "severity": "BLOCK",
+      "examples": [
+        {
+          "text": "频次：待填",
+          "decision": "BLOCK"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "clarification_list attachment not in body A",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-008",
+      "name": "DuplicateParagraphs",
+      "trigger": "Near-duplicate paragraph/table row ratio > threshold.",
+      "decision": "AUTO_REPAIR collapse if 2 copies; BLOCK if section-scale duplication",
+      "severity": "AUTO_REPAIR_OR_BLOCK",
+      "examples": [
+        {
+          "text": "same 以甲方确认结果为准 sentence in lead + every section",
+          "decision": "AUTO_REPAIR keep once per M-009"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "necessary repeated 不承担车间设备维修 at engineering boundary",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-009",
+      "name": "TruncatedOrBrokenSentence",
+      "trigger": "Section ends mid-phrase, last token is 按/将/把/和/或, or artifact.sections shorter than 3 for WORD Profile-W.",
+      "decision": "BLOCK",
+      "severity": "BLOCK",
+      "examples": [
+        {
+          "text": "清洁作业按",
+          "source": "original Qwen generation_raw truncated",
+          "decision": "BLOCK"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "complete Profile-W sections with headings and closing clause",
+          "decision": "PASS"
+        }
+      ]
+    },
+    {
+      "rule_id": "FAQ-010",
+      "name": "GuardrailReverseLecture",
+      "trigger": "Body explains what the model is not allowed to write.",
+      "decision": "AUTO_REPAIR to silent compliance; BLOCK if a 风险提示 chapter",
+      "severity": "AUTO_REPAIR",
+      "examples": [
+        {
+          "text": "不套用其他项目的日历工期",
+          "decision": "AUTO_REPAIR: just don't copy calendars"
+        }
+      ],
+      "counter_examples": [
+        {
+          "text": "具体证件以甲方现行规则为准，物业按规则执行",
+          "decision": "PASS natural boundary"
+        }
+      ]
+    }
+  ],
+  "repair_limits": {
+    "max_auto_repair_hits": 8,
+    "max_english_token_repairs": 3,
+    "ku_id_leak": "always BLOCK",
+    "truncated_generation": "always BLOCK"
+  },
+  "does_not_cover": "C1–C10 provenance (Gate 3). Hygiene must not silently delete illegal commitments; if removing greasy would leave an unconfirmed 每日标准, Gate 3 still decides."
+}

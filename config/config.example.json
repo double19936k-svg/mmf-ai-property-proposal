@@ -1,0 +1,21 @@
+{
+  "schema_version": "mmf-public-config-example-v0.1",
+  "note": "Example only. Copy values you need into the UI or environment variables. Never put a real API key here.",
+  "listen": {
+    "host": "127.0.0.1",
+    "port": 3050
+  },
+  "providers": {
+    "default_provider": "qwen_modelstudio",
+    "qwen_api_key": "YOUR_QWEN_API_KEY",
+    "kimi_api_key": "YOUR_KIMI_API_KEY",
+    "xai_api_key": "YOUR_API_KEY_HERE"
+  },
+  "paths": {
+    "package_root": ".",
+    "config_root": "./config",
+    "output_root": "./output",
+    "data_root": ".",
+    "logs_dir": "./logs"
+  }
+}

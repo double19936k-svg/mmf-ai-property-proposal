@@ -1,0 +1,9 @@
+{
+  "name": "property-ai-mmf-portable",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Portable runtime dependencies for the property proposal MMF",
+  "dependencies": {
+    "@oai/artifact-tool": "2.8.52"
+  }
+}

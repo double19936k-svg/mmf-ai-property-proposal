@@ -1,0 +1,44 @@
+{
+  "patch_name": "Delivery Rendering Patch V0.1",
+  "task": "S1-005 MVP正式交付呈现修复",
+  "status": "patch_completed_pending_todd_rendering_review",
+  "scope": "delivery_rendering_only",
+  "rules": [
+    {
+      "rule_id": "DRP-001",
+      "name": "Formal Output Sanitation",
+      "requirement": "A正式输出不显示内部注释、Guardrail、实验或模型提示；普通业务括号保留，内部解释性括号移出正式正文。"
+    },
+    {
+      "rule_id": "DRP-002",
+      "name": "Structure Realization",
+      "requirement": "稳定行列转真实表格，先后关系转流程，并列措施转模块；禁止用竖线或箭头段落模拟交付组件。"
+    }
+  ],
+  "frozen_inputs": [
+    "Knowledge Unit",
+    "B1.2 Schema",
+    "Candidate Positive/Guardrail Corpus",
+    "Generation Layer V0.2",
+    "User Writing Style Model V0.2"
+  ],
+  "allowed_changes": [
+    "排版",
+    "段落组织",
+    "真实表格/流程/模块结构",
+    "标题层级",
+    "内部注释迁移",
+    "标点与最小连接词"
+  ],
+  "forbidden_changes": [
+    "业务措施",
+    "责任关系",
+    "引用关系",
+    "项目事实",
+    "风险边界",
+    "Guardrail逻辑",
+    "知识结论"
+  ],
+  "grok_called": false,
+  "created_at": "2026-08-27T18:29:26+08:00"
+}

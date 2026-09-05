@@ -1,0 +1,32 @@
+{
+  "profile_name": "Output Medium Profile V0.1",
+  "status": "candidate_pending_todd_media_profile_review",
+  "supported_media": ["PPT", "WORD"],
+  "excluded_media": ["HTML", "Web", "PDF", "Excel", "Other"],
+  "profiles": {
+    "Profile-P": {
+      "medium": "PPT",
+      "unit": "page",
+      "basic_syntax": ["page_title", "core_message", "visual_structure", "limited_supporting_text"],
+      "preferred_structures": ["table", "process", "module", "responsibility_matrix", "timeline", "organization", "comparison"],
+      "prohibited": ["long_continuous_prose", "web_card_style", "dashboard_style", "word_colored_layout", "tiny_font_for_one_page_completeness"]
+    },
+    "Profile-W": {
+      "medium": "WORD",
+      "unit": "formal_document",
+      "basic_syntax": ["heading_1", "heading_2", "heading_3", "prose_paragraph", "necessary_list", "real_table"],
+      "preferred_characteristics": ["continuous_reading", "editable", "printable", "reviewable", "grayscale_robust"],
+      "prohibited": ["card_heavy_layout", "web_sections", "ppt_slogan_copy", "large_visual_decoration", "table_overuse"]
+    }
+  },
+  "case_mapping": {
+    "Case-4": "Profile-P",
+    "Case-5": "Profile-W"
+  },
+  "content_baseline": {
+    "Case-4": "Case4_Rendered_V2",
+    "Case-5": "Case5_Rendered_V2"
+  },
+  "content_semantics_changed": false,
+  "grok_called": false
+}

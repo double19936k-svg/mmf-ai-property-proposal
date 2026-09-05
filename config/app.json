@@ -1,0 +1,8 @@
+{
+  "app_name": "MMF Desktop / Local",
+  "app_version": "0.1.0-alpha",
+  "app_status": "initial_deployable",
+  "baseline_authority": "MMF-006D R10",
+  "host": "127.0.0.1",
+  "port": 3050
+}

@@ -1,0 +1,21 @@
+{
+  "source_version": "0.1.0-alpha",
+  "source_hash": "c121cbb773d5f6fed788c312397b89bf8713de919946479920e60e499667b641",
+  "build_time": "2026-09-04T22:42:37+08:00",
+  "dist_version": "0.1.0-alpha-r1.1",
+  "longform_orchestrator_version": "0.1-r1",
+  "build_id": "MMF006E-R1.1-c121cbb773d5-20260904224237",
+  "runtime_source": "source",
+  "included_longform": [
+    "app/planning/planner.py",
+    "app/planning/canonical.py",
+    "app/longform/factory.py",
+    "app/longform/orchestrator.py",
+    "app/providers/capability.py",
+    "app/governance/longform_qa.py",
+    "app/app_core.py",
+    "启动MMF.cmd",
+    "tools/launch_mmf.ps1"
+  ],
+  "last_packed_dist": "dist/MMF-portable-v0.1"
+}

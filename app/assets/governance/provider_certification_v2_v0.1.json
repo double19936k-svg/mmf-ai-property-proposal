@@ -1,0 +1,160 @@
+{
+  "schema_version": "provider-certification-v2-v0.1",
+  "replaces": [
+    "P1 conditional_time_numeric",
+    "P2 staffing_and_organization",
+    "P3 historical_sla_kpi_frequency"
+  ],
+  "principle": "Certify bottom-line discipline, not identical recommended KU lists, not identical prose, not identical chapter order, not identical style. Two providers may both PASS with different SELECTED sets if both respect negative scope, unknown conditions, and hygiene.",
+  "runtime_requirement": "Each CERT case must run Selection (not CASE_KU injection). Injected-KU tests may remain as regression of generation-only, labeled CERT-GEN-*, and cannot qualify a provider alone.",
+  "pass_fail": {
+    "structured_output": "required",
+    "selection_gate": "no EXCLUDED KU in selected_positive; CONDITIONAL KUs must have contracts",
+    "commitment_provenance": "zero residual BLOCK claims",
+    "artifact_qa": "no residual BLOCK hygiene",
+    "formal_media": "WORD and/or PPT per case",
+    "repair_loops": "<=2 local same-provider repairs",
+    "second_model_review": "forbidden as scoring authority"
+  },
+  "tests": [
+    {
+      "test_id": "CERT-01",
+      "name": "UserNegativeScope",
+      "focus": "客服基本不用 must not pull 会议/园区客服 KU into SELECTED",
+      "brief_delta": {
+        "project_type": "产业园区",
+        "requirements": "重点安防与厂区清洁，客服除宿舍管理之外基本上不用",
+        "functional_composition": "厂房+办公楼+宿舍楼"
+      },
+      "must_not_select": [
+        "KU-9017-EC5D2161"
+      ],
+      "must_not_write": [
+        "会议服务三阶段作为本园客服主责",
+        "客服团队统一受理园区投诉"
+      ],
+      "may_write": [
+        "宿舍报事",
+        "厂房外围清洁方法"
+      ],
+      "pass_if": "KU-9017 EXCLUDED/DEPRIORITIZED; no meeting SOP chapter; dorm path allowed",
+      "fail_if": "SELECT KU-9017 because 有办公楼",
+      "style_identity_not_required": true
+    },
+    {
+      "test_id": "CERT-02",
+      "name": "UnknownOutsourcing",
+      "focus": "outsourcing empty must not announce 外包模式",
+      "brief_delta": {
+        "confirmed fields": "outsourcing empty",
+        "requirements": "厂区清洁为重点"
+      },
+      "conditional_kus": [
+        "KU-9007-83FCB89D",
+        "KU-9021-6AB7A5E7"
+      ],
+      "must_not_write": [
+        "采用外包模式",
+        "由专业供方承担日常作业 as fact",
+        "考核结果与费用结算挂钩 as current commercial term"
+      ],
+      "may_write": [
+        "环境服务采用外委方式时，可建立供方履约评价机制"
+      ],
+      "pass_if": "C3 claims are CONDITIONAL_METHOD or absent",
+      "fail_if": "FACT/COMMITMENT operating model"
+    },
+    {
+      "test_id": "CERT-03",
+      "name": "UnknownStaffing",
+      "focus": "empty confirmed_staffing",
+      "must_not_write": [
+        "固定岗 as installed establishment",
+        "专人持续值守 as promised post",
+        "N人",
+        "专属岗"
+      ],
+      "may_write": [
+        "明确值守与巡逻责任",
+        "安防负责人作为职责机制 if not new headcount"
+      ],
+      "aligns_with": "CG-003 Level B/C BLOCK, Level A PASS; plus C2 semantic 固定岗",
+      "pass_if": "no C2 COMMITMENT",
+      "fail_if": "设置固定岗/专属岗/人数"
+    },
+    {
+      "test_id": "CERT-04",
+      "name": "UnknownAccessMode",
+      "focus": "封闭管理 empty",
+      "must_not_write": [
+        "实行封闭管理",
+        "外来人员不得进入 as installed park policy"
+      ],
+      "may_write": [
+        "若具备封闭条件，则按出入口控制通行；若不能封闭，则加密出入口值守"
+      ],
+      "pass_if": "C4 is OPTION/CONDITIONAL not FACT",
+      "fail_if": "announces closed campus"
+    },
+    {
+      "test_id": "CERT-05",
+      "name": "ConditionalKuPreservation",
+      "focus": "KUC must_conditionalize survives into body",
+      "seed": "KU-9007 CONDITIONAL, KU-9008 method SELECTED, KU-9019 secrecy CONDITIONAL",
+      "pass_if": "no dropped condition; no 资料禁看 as park-wide rule; outsourcing method stays 时/如",
+      "fail_if": "core_knowledge used, applicability discarded"
+    },
+    {
+      "test_id": "CERT-06",
+      "name": "PlausibleIndustryDefault",
+      "focus": "每日清洁 / 24小时监控 / 全天候 / 日清日洁",
+      "must_not_write_as_fact": [
+        "24小时监控值守",
+        "全天候值守",
+        "每日保洁频次",
+        "门禁卡发放"
+      ],
+      "may_write": [
+        "建议结合现场封闭与技防条件设置重点值守区域"
+      ],
+      "pass_if": "defaults stay RECOMMENDATION/OPTION",
+      "fail_if": "industry common sense becomes PROJECT_FACT"
+    },
+    {
+      "test_id": "CERT-07",
+      "name": "ResponsibilityApproval",
+      "focus": "must not invent 项目经理批示/某部门批准 as this project's authority",
+      "must_not_write": [
+        "由项目经理批示",
+        "报某某部门批准 as unconfirmed"
+      ],
+      "may_write": [
+        "分层审核、执行、抽查相互制约 as method from KU-9024 without extra approval authority"
+      ],
+      "pass_if": "no C5 COMMITMENT beyond Brief/KU method RACI",
+      "fail_if": "copied 项目经理批示 from KU-9028 while 客服 deprioritized"
+    },
+    {
+      "test_id": "CERT-08",
+      "name": "ArtifactHygiene",
+      "focus": "meta language, English pollution, internal leaks",
+      "must_not_write": [
+        "本方案不预填",
+        "不套用其他项目",
+        "Guardrail",
+        "KU-90",
+        "greasy",
+        "作为AI"
+      ],
+      "pass_if": "FAQ PASS or successful AUTO_REPAIR; no BLOCK residue",
+      "fail_if": "truncated sentences, KU IDs, or unrestored English tokens"
+    }
+  ],
+  "legacy_p1_p3": "Keep as CERT-GEN-P1/P2/P3 generation-only numeric/staffing/SLA fingerprints. Necessary, not sufficient. Dual-star A/B is the selection-inclusive regression fixture, not a demand that providers emit the same chapters.",
+  "scoring": {
+    "identical_ku_list": "not scored",
+    "identical_wording": "not scored",
+    "identical_heading_tree": "not scored",
+    "discipline_violations": "scored BLOCK=fail"
+  }
+}

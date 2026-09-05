@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knowledge-usage-contract-v0.1",
+  "title": "Knowledge Usage Contract V0.1",
+  "description": "Per-KU contract attached after Selection Gate and before Generation. Preserves applicability/non_applicable_conditions that providers otherwise drop, keeping only core_knowledge.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "brief_id",
+    "contracts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "knowledge-usage-contract-v0.1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "brief_id": {
+      "type": "string"
+    },
+    "selection_gate_version": {
+      "type": "string"
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ku_contract"
+      }
+    }
+  },
+  "$defs": {
+    "selection_status": {
+      "type": "string",
+      "enum": [
+        "SELECTED",
+        "CONDITIONAL",
+        "DEPRIORITIZED"
+      ]
+    },
+    "language_level": {
+      "type": "string",
+      "enum": [
+        "FACT",
+        "COMMITMENT",
+        "RECOMMENDATION",
+        "OPTION",
+        "CONDITIONAL_METHOD"
+      ]
+    },
+    "ku_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ku_id",
+        "usable_content",
+        "selection_status",
+        "allowed_usage",
+        "required_conditions",
+        "forbidden_escalations",
+        "must_conditionalize",
+        "project_confirmation_required",
+        "language_level"
+      ],
+      "properties": {
+        "ku_id": {
+          "type": "string",
+          "pattern": "^KU-[0-9]{4}-[A-F0-9]{8}$"
+        },
+        "usable_content": {
+          "type": "string",
+          "minLength": 8,
+          "description": "Stripped method text allowed in generation; no L0 facts, no historic numbers."
+        },
+        "selection_status": {
+          "$ref": "#/$defs/selection_status"
+        },
+        "selection_reason": {
+          "type": "string"
+        },
+        "positive_evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "negative_evidence": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "missing_preconditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowed_usage": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_conditions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_escalations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "must_conditionalize": {
+          "type": "boolean"
+        },
+        "project_confirmation_required": {
+          "type": "boolean"
+        },
+        "language_level": {
+          "$ref": "#/$defs/language_level"
+        },
+        "backend_condition": {
+          "type": "string",
+          "description": "Strict machine condition, e.g. outsourcing_mode==outsourced."
+        },
+        "frontend_conditional_phrasing": {
+          "type": "string",
+          "description": "Natural property Chinese for unknown conditions. No 本方案不预填 / 待确认 stacked banners."
+        },
+        "human_confirmation_question": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "body_visibility": {
+          "type": "string",
+          "enum": [
+            "full_method",
+            "conditional_method",
+            "mention_only",
+            "internal_only"
+          ]
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "ku_id": "KU-9007-83FCB89D",
+      "usable_content": "环境供方可用作业计划、养护台账、月度/年度考核档案和可替换资源池管理履约。",
+      "selection_status": "CONDITIONAL",
+      "allowed_usage": [
+        "介绍外包情况下的供方治理方法"
+      ],
+      "required_conditions": [
+        "outsourcing_mode==outsourced"
+      ],
+      "forbidden_escalations": [
+        "不得声明当前项目采用外包模式",
+        "不得写考核结果与费用结算挂钩为已生效商务条款",
+        "不得填入他项目月度分数"
+      ],
+      "must_conditionalize": true,
+      "project_confirmation_required": true,
+      "language_level": "CONDITIONAL_METHOD",
+      "backend_condition": "outsourcing_unknown",
+      "frontend_conditional_phrasing": "环境服务采用外委方式时，可建立供方履约评价机制。",
+      "human_confirmation_question": "尚未确认清洁自营还是外包。是否在方案中写入供方管理方法（不宣布已外包）？",
+      "body_visibility": "conditional_method"
+    },
+    {
+      "ku_id": "KU-9019-03A470D6",
+      "usable_content": "一般清洁顺序：备工具—巡视—设警示—先清重污和大件—按序作业。",
+      "selection_status": "SELECTED",
+      "allowed_usage": [
+        "厂区/公区一般作业顺序"
+      ],
+      "required_conditions": [
+        "high_info_security_zone==true 才可写资料禁看附加控制"
+      ],
+      "forbidden_escalations": [
+        "不得把资料不得观看/抄写/复制/拍照写成全场纪律",
+        "不得在正文解释Guardrail或反向声明"
+      ],
+      "must_conditionalize": false,
+      "project_confirmation_required": false,
+      "language_level": "CONDITIONAL_METHOD",
+      "frontend_conditional_phrasing": "办公室内如甲方有文件权限要求，按该区域交底执行。",
+      "body_visibility": "full_method"
+    }
+  ]
+}

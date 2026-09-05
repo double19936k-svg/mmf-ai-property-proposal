@@ -1,0 +1,16 @@
+{
+  "schema_version": "mmf-desktop-user-settings-v0.1",
+  "package_root": "",
+  "data_root": "",
+  "output_root": "",
+  "logs_dir": "",
+  "config_root": "",
+  "temp_root": "",
+  "runs_dir": "",
+  "default_provider": "qwen_modelstudio",
+  "default_medium": "WORD",
+  "enable_grok_bridge": false,
+  "enable_image_provider": false,
+  "image_provider_name": "qwen_image",
+  "first_run_completed": false
+}

@@ -1,0 +1,456 @@
+{
+  "schema_version": "knowledge-selection-gate-v0.1",
+  "gate_id": "GATE-1",
+  "authority": "local_provider_independent",
+  "runtime_mode_recommended": "mode_c_provider_recommend_then_local_correct",
+  "states": [
+    {
+      "status": "SELECTED",
+      "meaning": "Method is in user scope; preconditions met or not required; no strong negative evidence. Enters generation as UNCONDITIONAL_KU_METHOD, still not a license to invent project facts.",
+      "mechanical_boundary": "user_focus_match AND applicability_ok AND reuse_ok AND missing_preconditions_empty AND negative_evidence.strength!=strong"
+    },
+    {
+      "status": "CONDITIONAL",
+      "meaning": "In-scope method whose enabling condition is unknown, empty in Brief, or listed in missing_information. Enters only with Knowledge Usage Contract must_conditionalize=true.",
+      "mechanical_boundary": "in_scope AND (precondition in missing_information OR clarification empty OR non_applicable_conditions might apply)"
+    },
+    {
+      "status": "DEPRIORITIZED",
+      "meaning": "Weak scenario/composition match or user-deprioritized domain. No dedicated chapter. Residual mention only if another in-scope process needs a stub.",
+      "mechanical_boundary": "weak_positive_only OR user_deprioritized_domain AND not explicit_include"
+    },
+    {
+      "status": "EXCLUDED",
+      "meaning": "Negative constraint, applicability miss, reuse_scope block, guardrail-only, L0 historical fact/commitment, or provider-inferred false precondition.",
+      "mechanical_boundary": "strong_negative OR reuse_mode in {do_not_reuse,evidence_only,structure_only as body} OR knowledge_type in {project_specific_fact,historical_commitment} with L0 OR guardrail membership"
+    }
+  ],
+  "audit_fields_required": [
+    "ku_id",
+    "selection_status",
+    "selection_reason",
+    "positive_evidence",
+    "negative_evidence",
+    "missing_preconditions",
+    "overridden_provider_status"
+  ],
+  "rules": [
+    {
+      "rule_id": "KSG-001",
+      "name": "UserNegativeOrDeprioritizedScope",
+      "trigger": "Brief.requirements or service_scope contains explicit negative / deprioritized language (除了…不用, 不负责, 不作为重点, 不含, 不开展).",
+      "input_fields": [
+        "brief.requirements",
+        "brief.service_scope",
+        "brief.client_requirements",
+        "ku.domain",
+        "ku.scenario",
+        "ku.content_role",
+        "ku.core_knowledge"
+      ],
+      "decision": "Map hit domains to DEPRIORITIZED or EXCLUDED. 客服 except 宿舍 → EXCLUDE meeting-service KU; DEPRIORITIZE park-wide complaint/front-desk KU; ALLOW dormitory customer-service methods.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "brief": "客服除了宿舍管理之外基本上不用",
+          "provider_reason": "办公楼会议服务需明确跨岗位责任边界",
+          "expected": "EXCLUDED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "dorm-process-stub",
+          "brief": "客服除宿舍外基本不用",
+          "expected": "SELECTED or CONDITIONAL for 宿舍报事/入住协同 only"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-002",
+      "name": "ScenarioIsNotACatalog",
+      "trigger": "ku.scenario or content_role overlaps Brief.scenario (e.g. 前期介入) but KU is an adjacent specialty not named in requirements.",
+      "input_fields": [
+        "brief.scenario",
+        "brief.requirements",
+        "ku.scenario",
+        "ku.content_role"
+      ],
+      "decision": "Scenario overlap is weak positive only. Do not SELECT 会议/培训/数字化/投诉 solely because scenario=前期介入.",
+      "severity": "WARN",
+      "examples": [
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "note": "前期介入 does not imply 会议服务",
+          "expected": "DEPRIORITIZED or EXCLUDED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9003-33317F36",
+          "note": "前期介入+新建园区+审图方法",
+          "expected": "CONDITIONAL until 是否含审图 is answered, not EXCLUDED"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-003",
+      "name": "FunctionalCompositionIsWeakEvidence",
+      "trigger": "Only match is a building type in functional_composition (有办公楼/有宿舍/有厂房).",
+      "input_fields": [
+        "brief.functional_composition",
+        "ku.applicability",
+        "ku.project_type"
+      ],
+      "decision": "Treat as weak positive_evidence. Cannot alone produce SELECTED for 会议服务, 石材专项, 礼宾, 一对一培训.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "positive_evidence": "一栋办公楼",
+          "expected": "DEPRIORITIZED/EXCLUDED when 客服基本不用"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9012-E5E6CFB2",
+          "positive_evidence": "一栋办公楼 plus 厂区清洁重点",
+          "expected": "CONDITIONAL for 办公楼室内日常/专项分界 only, not whole-park"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-004",
+      "name": "ServiceScopeNegativeConstraints",
+      "trigger": "Explicit exclusion of work (不负责厂区车间设备维修).",
+      "input_fields": [
+        "brief.requirements",
+        "brief.service_scope",
+        "ku.core_knowledge"
+      ],
+      "decision": "EXCLUDED if KU would pull excluded objects into property scope. Workshop equipment KUs out. Engineering public-facility KUs remain.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "text": "不负责厂区车间设备维修",
+          "expected": "EXCLUDE any KU that treats 产线/工艺设备 as property O&M"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9039-FE41C21F",
+          "expected": "SELECTED/CONDITIONAL for 园区公区设施两层维保计划"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-005",
+      "name": "ApplicabilityMatch",
+      "trigger": "ku.applicability does not contain current project_type/scenario/medium objects.",
+      "input_fields": [
+        "ku.applicability",
+        "brief.project_type",
+        "brief.scenario",
+        "brief.functional_composition"
+      ],
+      "decision": "If applicability is 办公物业投诉闭环 and project is 产业园 with 客服基本不用 → DEPRIORITIZED/EXCLUDED. If applicability is 多地块产业园安防 and project is 产业园 with 安防重点 → allow SELECTED method / CONDITIONAL commitments.",
+      "severity": "WARN",
+      "examples": [
+        {
+          "ku_id": "KU-9028-AAA62083",
+          "applicability": "适用于办公物业投诉闭环",
+          "expected": "DEPRIORITIZED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9008-1DF2811A",
+          "applicability": "多地块产业园分区分级安防",
+          "expected": "SELECTED as method skeleton"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-006",
+      "name": "NonApplicableConditions",
+      "trigger": "ku.non_applicable_conditions is likely true or unknown.",
+      "input_fields": [
+        "ku.non_applicable_conditions",
+        "brief.*",
+        "missing_information",
+        "clarification_answers"
+      ],
+      "decision": "If condition is true → EXCLUDED. If unknown → CONDITIONAL, never SELECTED as unconditional. KU-9007 自营或强制采购时需改写 + 外包模式 missing → CONDITIONAL. KU-9008 客户不允许封闭管理 + 封闭管理空 → CONDITIONAL commitments.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9007-83FCB89D",
+          "missing": "外包服务范围和管理模式",
+          "expected": "CONDITIONAL"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9007-83FCB89D",
+          "brief": "confirmed outsourcing=outsourced",
+          "expected": "SELECTED method, still no invented SLA"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-007",
+      "name": "ReuseScopeAndReuseMode",
+      "trigger": "reuse_scope is same_project_only / same_client_or_company_only, or reuse_mode is do_not_reuse / evidence_only / structure_only.",
+      "input_fields": [
+        "ku.reuse_scope",
+        "ku.reuse_mode",
+        "ku.confidentiality",
+        "candidate_membership"
+      ],
+      "decision": "Never SELECT as positive body seed. Guardrail membership → active_guardrail only.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9001-D49C17EE",
+          "expected": "EXCLUDED from positive pack, remain guardrail"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9003-33317F36",
+          "reuse_scope": "general_reference",
+          "expected": "eligible for SELECTED/CONDITIONAL"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-008",
+      "name": "KnowledgeTypeAndAbstraction",
+      "trigger": "knowledge_type in {project_specific_fact, historical_commitment, data_fact, company_specific_policy} or abstraction_level=L0_original_fact.",
+      "input_fields": [
+        "ku.knowledge_type",
+        "ku.abstraction_level",
+        "candidate_corpus_index.membership"
+      ],
+      "decision": "L0 facts/commitments/data are EXCLUDED from positive pack. L1/L2 methods may SELECT/CONDITIONAL. L3 still cannot mint project numbers.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9020-D5AB7C37",
+          "knowledge_type": "historical_commitment",
+          "expected": "guardrail only"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9019-03A470D6",
+          "abstraction_level": "L2_methodology",
+          "expected": "CONDITIONAL method; 资料禁看 stays additional control"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-009",
+      "name": "MissingInformationIsPrecondition",
+      "trigger": "A KU enabling fact is exactly a missing_information item and clarification_answers[item] is empty.",
+      "input_fields": [
+        "missing_information",
+        "clarification_answers",
+        "ku.applicability",
+        "ku.non_applicable_conditions"
+      ],
+      "decision": "Force CONDITIONAL, never fully applicable. Provider text such as 大概率外包 is PROVIDER_INFERENCE and is not a filled clarification.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9007-83FCB89D",
+          "qwen_reason": "环境作业大概率外包",
+          "same_run_missing": "外包服务范围和管理模式",
+          "expected": "CONDITIONAL, override provider SELECTED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "note": "user filled 清洁外包=是",
+          "expected": "SELECTED method"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-010",
+      "name": "EvidenceBalance",
+      "trigger": "Both positive and negative evidence exist.",
+      "input_fields": [
+        "positive_evidence",
+        "negative_evidence",
+        "brief.requirements"
+      ],
+      "decision": "strong_negative > weak_positive. 办公楼 is weak; 客服基本不用 is strong. Output DEPRIORITIZED/EXCLUDED and keep both evidence lists for audit.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "positive": "有办公楼",
+          "negative": "客服除宿舍外基本不用",
+          "expected": "EXCLUDED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9008-1DF2811A",
+          "positive": "需求点名园区安防",
+          "negative": "封闭管理未知",
+          "expected": "SELECTED method + CONDITIONAL access/staffing claims"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-011",
+      "name": "ProviderMustNotFillUnknownConditions",
+      "trigger": "Provider selection reason asserts an unconfirmed operating fact (大概率外包, 通常封闭, 一般有会议).",
+      "input_fields": [
+        "provider_reason",
+        "clarification_answers",
+        "brief.confirmed_*"
+      ],
+      "decision": "Strip inferred fact. Re-score KU. Add selection_reason=provider_inference_removed.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "provider_reason": "厂区清洁、危化品区域消杀等环境作业大概率外包",
+          "expected": "do not treat outsourcing as PROJECT_FACT"
+        }
+      ],
+      "counter_examples": [
+        {
+          "provider_reason": "若走外包可用台账考核；现在还不知道是否外包",
+          "expected": "allow CONDITIONAL, this is correct restraint"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-012",
+      "name": "StyleCompletenessCannotOverrideNegativeScope",
+      "trigger": "Writing-style M-010/D-003/C-003 would add 投诉/会议/礼宾 chapters the user deprioritized.",
+      "input_fields": [
+        "user_writing_style_rules_v0.2",
+        "brief.requirements",
+        "ku_id"
+      ],
+      "decision": "User negative scope beats default catalogue completeness. Residual 报事 may be a CONDITIONAL_METHOD under 宿舍/工程, not a 客服团队 chapter. C-003 already forbids boosting 会务 unless bank/finance/HQ or explicit need.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9028-AAA62083",
+          "qwen_reason": "园区客服虽非重点但仍需投诉闭环",
+          "expected": "DEPRIORITIZED; no 客服团队统一受理"
+        }
+      ],
+      "counter_examples": [
+        {
+          "note": "user asks for 客户服务与投诉专章",
+          "expected": "SELECTED"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-013",
+      "name": "CandidateMembershipSplit",
+      "trigger": "candidate_guardrail_ids contains ku_id or membership=candidate_guardrail.",
+      "input_fields": [
+        "candidate_positive_ids",
+        "candidate_guardrail_ids",
+        "candidate_corpus_index"
+      ],
+      "decision": "Positive pack ∩ guardrail pack = empty. Guardrails activate CG fingerprints only.",
+      "severity": "BLOCK_SELECTED",
+      "examples": [
+        {
+          "ku_id": "KU-9006-C65A10D3",
+          "expected": "guardrail because 客服基本不用 and 礼宾制度"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9019-03A470D6",
+          "membership": "candidate_positive",
+          "expected": "eligible"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-014",
+      "name": "UserFocusWeight",
+      "trigger": "Brief.requirements names focus domains (安防, 人员车辆, 厂房, 厂区清洁, 危化品, 宿舍).",
+      "input_fields": [
+        "brief.requirements",
+        "ku.domain",
+        "ku.content_role"
+      ],
+      "decision": "Boost matching L1/L2 methods toward SELECTED/CONDITIONAL. Non-focus specialties default DEPRIORITIZED unless required by law or named.",
+      "severity": "INFO",
+      "examples": [
+        {
+          "ku_id": "KU-9008-1DF2811A",
+          "expected": "SELECTED method"
+        },
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "expected": "EXCLUDED in Dual-star"
+        }
+      ],
+      "counter_examples": [
+        {
+          "note": "commercial HQ brief that names 会议接待",
+          "expected": "SELECTED KU-9017"
+        }
+      ]
+    },
+    {
+      "rule_id": "KSG-015",
+      "name": "ProjectTypeMismatch",
+      "trigger": "ku.project_type does not include current brief.project_type and no explicit user ask.",
+      "input_fields": [
+        "ku.project_type",
+        "brief.project_type"
+      ],
+      "decision": "DEPRIORITIZE 商业写字楼/金融办公 KUs on 产业园区 unless user names that service.",
+      "severity": "WARN",
+      "examples": [
+        {
+          "ku_id": "KU-9017-EC5D2161",
+          "project_type": [
+            "商业写字楼",
+            "金融办公"
+          ],
+          "brief": "产业园区",
+          "expected": "EXCLUDED/DEPRIORITIZED"
+        }
+      ],
+      "counter_examples": [
+        {
+          "ku_id": "KU-9008-1DF2811A",
+          "project_type": [
+            "产业园区"
+          ],
+          "expected": "eligible"
+        }
+      ]
+    }
+  ],
+  "dual_star_expected_overrides": {
+    "KU-9017-EC5D2161": "EXCLUDED",
+    "KU-9028-AAA62083": "DEPRIORITIZED",
+    "KU-9007-83FCB89D": "CONDITIONAL",
+    "KU-9021-6AB7A5E7": "CONDITIONAL",
+    "KU-9008-1DF2811A": "SELECTED_method_CONDITIONAL_commitments",
+    "KU-9012-E5E6CFB2": "CONDITIONAL_office_only",
+    "KU-9019-03A470D6": "SELECTED_general_sequence_CONDITIONAL_secrecy_clause",
+    "KU-9003-33317F36": "CONDITIONAL_until_drawing_authority_known"
+  },
+  "non_goals": [
+    "identical KU lists across providers",
+    "editing accepted_ku_b1.2.jsonl",
+    "new B1.2 fields in this round"
+  ]
+}

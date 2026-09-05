@@ -1,0 +1,120 @@
+{
+  "schema_version": "providers-config-v0.2",
+  "default_provider": "qwen_modelstudio",
+  "available_providers": [
+    {
+      "provider_name": "qwen_modelstudio",
+      "display_name": "千问 Model Studio",
+      "provider_type": "openai_compatible",
+      "enabled": true,
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "endpoint_alias": "alibaba_modelstudio_china_beijing",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "credential_ref": "property_ai/qwen_modelstudio",
+      "model": "qwen3.7-plus",
+      "reasoning_mode": "thinking_enabled",
+      "timeout": 900,
+      "health_timeout": 20,
+      "temperature": 0.2,
+      "extra_options": {
+        "enable_thinking": false,
+        "response_format": {"type": "json_object"}
+      },
+      "billing_note": "实际费用与额度以千问账户为准。",
+      "qualification_status": "verified",
+      "test_mode": false
+    },
+    {
+      "provider_name": "grok_build",
+      "display_name": "Local Grok Bridge（可选）",
+      "provider_type": "grok_build",
+      "enabled": false,
+      "command": "grok",
+      "model_alias": "grok-4.6",
+      "model": "grok-4.6",
+      "reasoning_mode": "xhigh",
+      "endpoint_alias": "local_grok_cli",
+      "bridge_path": "${MMF_PACKAGE_ROOT}/providers/grok_bridge/grok_bridge.py",
+      "bridge_config": "${MMF_PACKAGE_ROOT}/providers/grok_bridge/bridge_config.json",
+      "timeout": 1800,
+      "health_timeout": 30,
+      "qualification_status": "verified",
+      "test_mode": false
+    },
+    {
+      "provider_name": "kimi_moonshot",
+      "display_name": "Kimi / Moonshot",
+      "provider_type": "openai_compatible",
+      "enabled": true,
+      "base_url": "https://api.moonshot.cn/v1",
+      "endpoint_alias": "moonshot_china",
+      "api_key_env": "MOONSHOT_API_KEY",
+      "credential_ref": "property_ai/kimi_moonshot",
+      "model": "kimi-k3",
+      "reasoning_mode": "reasoning_effort_low",
+      "timeout": 900,
+      "health_timeout": 20,
+      "temperature": 1,
+      "extra_options": {
+        "reasoning_effort": "low",
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "billing_note": "使用 Kimi 开放平台账号。API Key 在 platform.kimi.com 创建，国内接口为 api.moonshot.cn。",
+      "qualification_status": "verified",
+      "test_mode": false
+    },
+    {
+      "provider_name": "qwen_image",
+      "display_name": "千问万相（AI图片）",
+      "provider_type": "image_generation",
+      "enabled": true,
+      "base_url": "https://dashscope.aliyuncs.com/api/v1",
+      "image_api_url": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis",
+      "endpoint_alias": "alibaba_wanx_china_beijing",
+      "api_key_env": "DASHSCOPE_API_KEY",
+      "credential_ref": "property_ai/qwen_image",
+      "model": "wanx-v1",
+      "timeout": 180,
+      "health_timeout": 20,
+      "extra_options": {
+        "backend": "dashscope_wanx",
+        "reuse_text_provider": "qwen_modelstudio"
+      },
+      "billing_note": "使用千问/DashScope账号生成图片，可与文字千问共用同一把Key。实际费用以账户为准。",
+      "qualification_status": "image_service",
+      "test_mode": false
+    },
+    {
+      "provider_name": "grok_image",
+      "display_name": "Grok Imagine（AI图片）",
+      "provider_type": "image_generation",
+      "enabled": false,
+      "base_url": "https://api.x.ai/v1",
+      "endpoint_alias": "xai_imagine",
+      "api_key_env": "XAI_API_KEY",
+      "credential_ref": "property_ai/grok_image",
+      "model": "grok-imagine-image-2.0",
+      "timeout": 120,
+      "health_timeout": 20,
+      "extra_options": {
+        "backend": "xai_imagine"
+      },
+      "billing_note": "使用 xAI Imagine API 生成图片，需要单独的 XAI_API_KEY。",
+      "qualification_status": "image_service",
+      "test_mode": false
+    },
+    {
+      "provider_name": "mock",
+      "display_name": "Mock Provider（测试模式）",
+      "provider_type": "mock",
+      "enabled": true,
+      "model": "deterministic-mock-v0.1",
+      "reasoning_mode": "none",
+      "endpoint_alias": "in_process_test_only",
+      "qualification_status": "test_only",
+      "test_mode": true
+    }
+  ]
+}

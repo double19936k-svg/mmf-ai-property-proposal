@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tender-requirement-pack-v0.1",
+  "title": "Project Requirement Pack V0.1",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version", "pack_id", "run_id", "status", "source_registry", "project_facts", "service_scope",
+    "explicit_requirements", "mandatory_requirements", "service_standards", "staffing_requirements",
+    "service_hours", "sla_kpi", "facility_requirements", "handover_requirements", "security_requirements",
+    "environment_requirements", "engineering_requirements", "customer_service_requirements",
+    "commercial_or_assessment_requirements", "contract_or_duration_requirements", "exclusions", "ambiguities",
+    "conflicts", "potential_boilerplate", "clarification_items", "requirements", "scoring_items", "confirmation"
+  ],
+  "properties": {
+    "schema_version": {"const": "tender-requirement-pack-v0.1"},
+    "pack_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "pack_version": {"type": "integer", "minimum": 1},
+    "status": {"enum": ["extracting", "understanding", "awaiting_todd_confirmation", "ready_for_plan", "blocked_clarification", "partial_degraded"]},
+    "source_registry": {"type": "array"},
+    "project_facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_name": {"$ref": "#/$defs/canonical_fact"},
+        "project_type": {"$ref": "#/$defs/canonical_fact"},
+        "location": {"$ref": "#/$defs/canonical_fact"},
+        "gross_area": {"$ref": "#/$defs/canonical_fact"},
+        "managed_area": {"$ref": "#/$defs/canonical_fact"},
+        "building_count": {"$ref": "#/$defs/canonical_fact"},
+        "building_functions": {"$ref": "#/$defs/canonical_fact"},
+        "contract_duration": {"$ref": "#/$defs/canonical_fact"},
+        "service_start_date": {"$ref": "#/$defs/canonical_fact"},
+        "service_end_date": {"$ref": "#/$defs/canonical_fact"},
+        "service_scope_summary": {"$ref": "#/$defs/canonical_fact"},
+        "excluded_scope": {"$ref": "#/$defs/canonical_fact"}
+      }
+    },
+    "service_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["included", "excluded", "deprioritized", "conditional"],
+      "properties": {
+        "included": {"type": "array"},
+        "excluded": {"type": "array"},
+        "deprioritized": {"type": "array"},
+        "conditional": {"type": "array"}
+      }
+    },
+    "requirements": {"type": "array", "items": {"$ref": "#/$defs/requirement"}},
+    "conflicts": {"type": "array", "items": {"$ref": "#/$defs/conflict"}},
+    "potential_boilerplate": {"type": "array", "items": {"$ref": "#/$defs/boilerplate"}},
+    "clarification_items": {"type": "array"},
+    "scoring_items": {"type": "array"},
+    "confirmation": {"type": "object"}
+  },
+  "$defs": {
+    "canonical_fact": {
+      "type": "object",
+      "required": ["value", "source_requirement_id", "confirmation_status"],
+      "additionalProperties": false,
+      "properties": {
+        "value": {},
+        "source_requirement_id": {"type": "string"},
+        "confirmation_status": {"enum": ["UNCONFIRMED", "CONFIRMED"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["file_id", "source_file", "source_page", "source_paragraph_or_table", "source_excerpt"],
+      "properties": {
+        "file_id": {"type": "string"},
+        "source_file": {"type": "string"},
+        "source_page": {"type": ["integer", "null"]},
+        "heading_path": {"type": "array"},
+        "paragraph_index": {"type": ["integer", "null"]},
+        "table_index": {"type": ["integer", "null"]},
+        "source_paragraph_or_table": {"type": "string"},
+        "source_excerpt": {"type": "string", "minLength": 1}
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "required": ["requirement_id", "normalized_requirement", "requirement_type", "mandatory_level", "confidence", "classification", "conflict_group", "sources", "confirmation_status"],
+      "properties": {
+        "requirement_id": {"type": "string", "pattern": "^REQ-[0-9]{4}$"},
+        "normalized_requirement": {"type": "string", "minLength": 4},
+        "mandatory_level": {"enum": ["MUST", "SHOULD", "INFO", "UNKNOWN"]},
+        "classification": {"enum": ["PROJECT_SPECIFIC", "GENERIC_REQUIREMENT", "POTENTIAL_BOILERPLATE", "CONFLICT_OR_AMBIGUOUS"]},
+        "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}},
+        "confirmation_status": {"enum": ["UNCONFIRMED", "CONFIRMED", "REJECTED_AS_NOT_APPLICABLE", "EDITED", "DEFERRED"]}
+      }
+    },
+    "conflict": {
+      "type": "object",
+      "required": ["conflict_group_id", "requirement_ids", "issue", "options", "resolution", "blocker_for_plan"]
+    },
+    "boilerplate": {
+      "type": "object",
+      "required": ["boilerplate_id", "requirement_ids", "suspicion_reasons", "action_allowed"]
+    }
+  }
+}

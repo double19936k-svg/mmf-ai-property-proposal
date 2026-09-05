@@ -1,0 +1,482 @@
+{
+  "schema_version": "commitment-provenance-rules-v0.1",
+  "gate_id": "GATE-3",
+  "definition": "A Commitment Claim is any wording a lay reader would take as ‘this project will execute this way’.",
+  "language_levels": [
+    {
+      "level": "FACT",
+      "reader_effect": "already true here",
+      "allowed_when": [
+        "PROJECT_FACT",
+        "CLIENT_CONFIRMED",
+        "CURRENT_CONTRACT",
+        "CURRENT_POLICY"
+      ]
+    },
+    {
+      "level": "COMMITMENT",
+      "reader_effect": "will be done on this project",
+      "allowed_when": [
+        "PROJECT_FACT",
+        "CLIENT_CONFIRMED",
+        "CURRENT_CONTRACT",
+        "satisfied CONDITIONAL_KU"
+      ]
+    },
+    {
+      "level": "RECOMMENDATION",
+      "reader_effect": "advised, not decided",
+      "allowed_when": [
+        "UNCONDITIONAL_KU_METHOD",
+        "PROVIDER_INFERENCE if non-commitment"
+      ]
+    },
+    {
+      "level": "OPTION",
+      "reader_effect": "one possible path",
+      "allowed_when": [
+        "unknown operating model / access / staffing"
+      ]
+    },
+    {
+      "level": "CONDITIONAL_METHOD",
+      "reader_effect": "method applies when a condition holds",
+      "allowed_when": [
+        "CONDITIONAL_KU with unknown or pending condition"
+      ]
+    }
+  ],
+  "provenance_types": [
+    "PROJECT_FACT",
+    "CLIENT_CONFIRMED",
+    "CURRENT_CONTRACT",
+    "CURRENT_POLICY",
+    "UNCONDITIONAL_KU_METHOD",
+    "CONDITIONAL_KU",
+    "PROVIDER_INFERENCE",
+    "UNSUPPORTED"
+  ],
+  "claim_types": [
+    {
+      "claim_type": "C1",
+      "name": "NumericCommitment",
+      "covers": [
+        "人数",
+        "时间",
+        "频次",
+        "百分比",
+        "周期",
+        "面积拆分",
+        "数量"
+      ]
+    },
+    {
+      "claim_type": "C2",
+      "name": "StaffingCommitment",
+      "covers": [
+        "固定岗",
+        "新增岗位",
+        "人数",
+        "班次",
+        "团队结构",
+        "专属岗",
+        "安防负责人若被写成既定编制"
+      ]
+    },
+    {
+      "claim_type": "C3",
+      "name": "OperatingModelCommitment",
+      "covers": [
+        "自营",
+        "外包",
+        "混合",
+        "外委",
+        "由专业供方承担日常作业"
+      ]
+    },
+    {
+      "claim_type": "C4",
+      "name": "AccessControlCommitment",
+      "covers": [
+        "封闭管理",
+        "门禁",
+        "证件",
+        "访客机制",
+        "禁止进入",
+        "门禁卡"
+      ]
+    },
+    {
+      "claim_type": "C5",
+      "name": "ResponsibilityCommitment",
+      "covers": [
+        "谁批准",
+        "谁审核",
+        "谁签字",
+        "谁承担责任",
+        "项目经理批示"
+      ]
+    },
+    {
+      "claim_type": "C6",
+      "name": "ProcessCommitment",
+      "covers": [
+        "固定审批流程",
+        "固定投诉流程",
+        "固定入住流程",
+        "住宿协议"
+      ]
+    },
+    {
+      "claim_type": "C7",
+      "name": "CommercialCommitment",
+      "covers": [
+        "费用挂钩",
+        "扣款",
+        "续约",
+        "替换供方"
+      ]
+    },
+    {
+      "claim_type": "C8",
+      "name": "ServiceStandardCommitment",
+      "covers": [
+        "SLA",
+        "KPI",
+        "清洁标准",
+        "巡逻标准",
+        "响应标准",
+        "每日清洁",
+        "月度/年度考核"
+      ]
+    },
+    {
+      "claim_type": "C9",
+      "name": "TechnologyCommitment",
+      "covers": [
+        "已部署某系统",
+        "24小时监控",
+        "平台能力",
+        "设备配置"
+      ]
+    },
+    {
+      "claim_type": "C10",
+      "name": "PolicyCommitment",
+      "covers": [
+        "禁止",
+        "必须",
+        "应当",
+        "不得",
+        "外来人员禁止进入住宿区域"
+      ]
+    }
+  ],
+  "decision_matrix": [
+    {
+      "provenance_type": "PROJECT_FACT",
+      "decision": "PASS",
+      "conditionalization_rule": null,
+      "block_rule": null,
+      "repair_strategy": "keep"
+    },
+    {
+      "provenance_type": "CLIENT_CONFIRMED",
+      "decision": "PASS",
+      "conditionalization_rule": null,
+      "block_rule": null,
+      "repair_strategy": "keep"
+    },
+    {
+      "provenance_type": "CURRENT_CONTRACT",
+      "decision": "PASS",
+      "conditionalization_rule": null,
+      "block_rule": "if quote exceeds provided contract excerpt → BLOCK",
+      "repair_strategy": "cite contract or demote"
+    },
+    {
+      "provenance_type": "CURRENT_POLICY",
+      "decision": "PASS",
+      "conditionalization_rule": null,
+      "block_rule": "company L0 policy original names/dates → BLOCK (existing guardrail)",
+      "repair_strategy": "method-only rewrite"
+    },
+    {
+      "provenance_type": "UNCONDITIONAL_KU_METHOD",
+      "decision": "PASS_IF_METHOD_ONLY",
+      "conditionalization_rule": "keep as method/RACI skeleton, not as installed posts, frequencies, or commercial terms",
+      "block_rule": "if escalated to C1–C10 project commitment → BLOCK",
+      "repair_strategy": "downgrade_to_method_or_recommendation"
+    },
+    {
+      "provenance_type": "CONDITIONAL_KU",
+      "decision": "PASS_IF_CONDITION_SATISFIED_ELSE_CONDITIONALIZE_OR_BLOCK",
+      "conditionalization_rule": "condition unknown → CONDITIONALIZE with frontend phrasing; do not announce the condition is missing",
+      "block_rule": "condition false → BLOCK; condition unknown but written as fact → BLOCK",
+      "repair_strategy": "apply frontend_conditional_phrasing from KUC"
+    },
+    {
+      "provenance_type": "PROVIDER_INFERENCE",
+      "decision": "KEEP_IF_NON_COMMITMENT_ELSE_BLOCK_OR_CLARIFY",
+      "conditionalization_rule": "non-commitment scene-setting may become RECOMMENDATION/OPTION",
+      "block_rule": "if claim_type C1–C10 → BLOCK or CLARIFY off-body",
+      "repair_strategy": "delete inferred fact; optional human_confirmation_question"
+    },
+    {
+      "provenance_type": "UNSUPPORTED",
+      "decision": "BLOCK",
+      "conditionalization_rule": null,
+      "block_rule": "always",
+      "repair_strategy": "delete or replace with in-scope method"
+    }
+  ],
+  "plausible_but_unconfirmed": {
+    "principle": "Plausibility is not evidence. Industry default may seed RECOMMENDATION or CONDITIONAL_METHOD only.",
+    "examples": [
+      {
+        "industry_default": "产业园通常24小时监控",
+        "not_equal_to": "本项目已确认24小时监控值守",
+        "claim_types": [
+          "C9",
+          "C2"
+        ]
+      },
+      {
+        "industry_default": "宿舍通常有门禁卡",
+        "not_equal_to": "本项目发放门禁卡并签住宿协议",
+        "claim_types": [
+          "C4",
+          "C6"
+        ]
+      },
+      {
+        "industry_default": "保洁通常每日",
+        "not_equal_to": "本项目每日清洁且考核挂钩结算",
+        "claim_types": [
+          "C8",
+          "C7"
+        ]
+      },
+      {
+        "industry_default": "厂房通常封闭",
+        "not_equal_to": "本项目实行封闭管理",
+        "claim_types": [
+          "C4",
+          "C10"
+        ]
+      }
+    ],
+    "allowed_suggestion_example": "建议结合园区封闭条件设置重点值守区域。",
+    "forbidden_upgrade_example": "厂房区域实行封闭管理，出入口设置固定岗，监控中心24小时值守。"
+  },
+  "semantic_equivalents": [
+    {
+      "canonical": "24小时",
+      "equivalents": [
+        "全天候",
+        "昼夜不间断",
+        "全天在岗",
+        "连续值守",
+        "全天侯",
+        "7×24值守",
+        "昼夜值班",
+        "不间断监控"
+      ],
+      "claim_types": [
+        "C1",
+        "C9",
+        "C2"
+      ]
+    },
+    {
+      "canonical": "固定岗",
+      "equivalents": [
+        "专人持续值守",
+        "常设岗亭",
+        "定点值守",
+        "驻点看护",
+        "固定值守点",
+        "出入口常设岗位"
+      ],
+      "claim_types": [
+        "C2"
+      ]
+    },
+    {
+      "canonical": "外包",
+      "equivalents": [
+        "外委",
+        "采用外包模式",
+        "由专业供方承担",
+        "委托第三方",
+        "专业单位实施日常作业",
+        "外包管理"
+      ],
+      "claim_types": [
+        "C3"
+      ]
+    },
+    {
+      "canonical": "每日清洁",
+      "equivalents": [
+        "每天清扫",
+        "一日一次保洁",
+        "日清日洁",
+        "按日保洁",
+        "日常日保"
+      ],
+      "claim_types": [
+        "C8",
+        "C1"
+      ]
+    },
+    {
+      "canonical": "封闭管理",
+      "equivalents": [
+        "封闭式管理",
+        "封闭管控",
+        "实行封闭",
+        "园区封闭运行"
+      ],
+      "claim_types": [
+        "C4"
+      ]
+    },
+    {
+      "canonical": "门禁卡",
+      "equivalents": [
+        "通行卡",
+        "授权卡片",
+        "门禁介质",
+        "刷卡出入介质"
+      ],
+      "claim_types": [
+        "C4"
+      ]
+    },
+    {
+      "canonical": "项目经理批示",
+      "equivalents": [
+        "项目经理审定",
+        "报项目经理批准",
+        "项目经理签发",
+        "由项目经理拍板"
+      ],
+      "claim_types": [
+        "C5"
+      ]
+    },
+    {
+      "canonical": "费用结算挂钩",
+      "equivalents": [
+        "与结算联动",
+        "考核结果影响付款",
+        "扣款挂钩",
+        "费用挂钩"
+      ],
+      "claim_types": [
+        "C7"
+      ]
+    },
+    {
+      "canonical": "外来人员禁止进入",
+      "equivalents": [
+        "外来人员不得进入",
+        "无关人员禁止入内",
+        "非住宿人员一律不得进入"
+      ],
+      "claim_types": [
+        "C4",
+        "C10"
+      ]
+    }
+  ],
+  "matcher_discipline": {
+    "mechanical_scan": [
+      "unit-bearing numbers (extend CG-001 beyond historic KU numerals to any unconfirmed C1)",
+      "lexicon hits for C2–C10 and semantic equivalents",
+      "banned meta phrases for Gate 4",
+      "KUC.forbidden_escalations substring/equivalent match"
+    ],
+    "light_semantic": [
+      "classify sentence language_level",
+      "map claim_type C1–C10",
+      "detect condition dropped (must_conditionalize true but sentence is FACT/COMMITMENT)",
+      "detect plausible-default upgrade"
+    ],
+    "provider_self_check": [
+      "only residual ambiguous sentences after local gates",
+      "never a second-provider audit",
+      "never authority over local BLOCK"
+    ],
+    "not_allowed": [
+      "Qwen generate → Grok review",
+      "Grok generate → Qwen review"
+    ]
+  },
+  "repair_playbook": [
+    {
+      "id": "RP-CONDITIONALIZE",
+      "use_when": "CONDITIONAL_KU or unknown Brief field",
+      "action": "rewrite with frontend_conditional_phrasing; move uncertainty to clarification_list not body banners"
+    },
+    {
+      "id": "RP-DOWNGRADE-RECOMMENDATION",
+      "use_when": "PROVIDER_INFERENCE non-core",
+      "action": "建议 + 结合现场条件, no 必须/实行"
+    },
+    {
+      "id": "RP-METHOD-ONLY",
+      "use_when": "UNCONDITIONAL_KU_METHOD nouns look like posts (固定岗)",
+      "action": "按区域明确值守与巡逻责任, do not assert established posts or headcount"
+    },
+    {
+      "id": "RP-DELETE-COMMITMENT",
+      "use_when": "UNSUPPORTED C1–C10",
+      "action": "delete number/post/model/policy; keep surrounding in-scope method"
+    },
+    {
+      "id": "RP-CLARIFY-OFFBODY",
+      "use_when": "high-impact unknown",
+      "action": "human_confirmation_question; do not print 待确认 in every section (style M-009)"
+    }
+  ],
+  "red_team_challenges": [
+    {
+      "bypass": "avoid 24小时 write 全天候监控覆盖",
+      "must_catch": true,
+      "rule": "semantic_equivalents C9"
+    },
+    {
+      "bypass": "avoid 固定岗 write 专人持续值守",
+      "must_catch": true,
+      "rule": "semantic_equivalents C2; still allow 明确值守责任 as Level A method"
+    },
+    {
+      "bypass": "avoid 外包 write 由专业供方承担日常清洁",
+      "must_catch": true,
+      "rule": "C3 unless prefixed 如采用外委"
+    },
+    {
+      "bypass": "avoid 每日 write 日清日洁作为本园标准",
+      "must_catch": true,
+      "rule": "C8"
+    },
+    {
+      "bypass": "avoid 封闭管理 write 凭证件进出且无关人员不得入内 as installed regime",
+      "must_catch": true,
+      "rule": "C4/C10 unless OPTION/CONDITIONAL"
+    },
+    {
+      "bypass": "quote KU-9019 secrecy clause while denying it, still leaking Guardrail",
+      "must_catch": true,
+      "handed_to": "GATE-4 plus KUC forbidden_escalations"
+    },
+    {
+      "bypass": "write 本方案不预填 instead of omitting the number",
+      "must_catch": true,
+      "handed_to": "GATE-4 AUTO_REPAIR"
+    }
+  ],
+  "current_gap_vs_cg": "CG-001–005 remain necessary but insufficient. Dual-star Qwen 24小时/封闭/外包/每日/门禁卡/项目经理批示 and Grok 固定岗落位/不预填 would still PASS today."
+}

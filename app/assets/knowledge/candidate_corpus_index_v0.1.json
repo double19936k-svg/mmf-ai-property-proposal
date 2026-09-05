@@ -1,0 +1,481 @@
+{
+  "task_id": "S1-005_WP3_candidate_corpus_role",
+  "corpus_status": "candidate_not_production",
+  "items": [
+    {
+      "knowledge_unit_id": "KU-9001-D49C17EE",
+      "membership": "candidate_guardrail",
+      "reason": "L0项目专属事实，含面积、路名区位与招商方向；do_not_reuse且same_project_only、项目保密。用作禁迁指纹，拦截把历史规模/定位写成新项目基础信息。",
+      "risk_tags": [
+        "禁项目外迁",
+        "禁面积业态外迁",
+        "禁路名地址",
+        "项目保密",
+        "core超写风险"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9002-6DC0D29D",
+      "membership": "not_selected",
+      "reason": "虽为L1且条件复用，但core把四种服务界面及职业健康/危险品等写细，超出最小证据。本轮不作正文种子，也不构成数字/承诺类主门禁。",
+      "risk_tags": [
+        "core超写风险",
+        "禁写成既定需求",
+        "需访谈验证"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9003-33317F36",
+      "membership": "candidate_positive",
+      "reason": "L2方法：运营结果反推审图，含目标与适用边界；direct_reference+general_reference。可作前期介入结构骨架，编目须保留业态范围争议标记。",
+      "risk_tags": [
+        "范围争议",
+        "须遵守不适用条件"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9004-8D8E5C8C",
+      "membership": "candidate_positive",
+      "reason": "L1正文种子：开业准备四条并行工作线，步骤可改写为进场章节；adapt_with_conditions。具体任务与时点须按合同重排。",
+      "risk_tags": [
+        "禁复制日历",
+        "任务须按合同重排"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9005-FCA474DE",
+      "membership": "candidate_positive",
+      "reason": "L2承接查验组织方法（缺陷闭环+资料转运营），direct_reference+general_reference。6–10人/小组约3人仅为小团队经验，不得升格为编制标准。",
+      "risk_tags": [
+        "禁编制人数外迁",
+        "非行业绝对规则",
+        "证据含公司原名"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9006-C65A10D3",
+      "membership": "candidate_guardrail",
+      "reason": "L0公司制度，含礼宾8S及企业形象口径；structure_only+same_client_or_company_only。拦截品牌原名与公司方法原样复制。",
+      "risk_tags": [
+        "禁品牌原名",
+        "禁公司制度原名复制",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9007-83FCB89D",
+      "membership": "candidate_positive",
+      "reason": "L1正文种子：环境供方台账—考核—资源池结构完整，可改写为外包管理段落；自营或强制采购制度时须改写。",
+      "risk_tags": [
+        "自营须改写",
+        "条件复用"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9008-1DF2811A",
+      "membership": "candidate_positive",
+      "reason": "L2安防方法：网格分级+人防物防技防+高峰/夜间专项，已是条件复用。开放街区或禁止封闭管理时须重构。",
+      "risk_tags": [
+        "条件复用",
+        "开放街区须重构"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9009-B25813C3",
+      "membership": "not_selected",
+      "reason": "L1应急目录检查表有正文潜力，但core事件类型超出最小证据。本轮不入Positive，也非SLA/日期类主门禁。",
+      "risk_tags": [
+        "core超写风险",
+        "预案须按法规重核",
+        "禁当行业标准目录"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9010-17E6B751",
+      "membership": "not_selected",
+      "reason": "L1数字化数据流经验已收缩，但仍依赖目标平台能力，策略判定本轮数字化暂无合格Positive；亦非效果指标/产品名主门禁。",
+      "risk_tags": [
+        "禁平台能力必备化",
+        "超写残余",
+        "须按目标平台确认"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9011-6AB31AB7",
+      "membership": "candidate_guardrail",
+      "reason": "L0案例效果主张（7×24、巡检12+、人力成本下降10%），evidence_only+敏感待判断。拦截未核验指标当业绩或新目标。",
+      "risk_tags": [
+        "禁效果当业绩",
+        "敏感待判断",
+        "需核验",
+        "same_project_only"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9012-E5E6CFB2",
+      "membership": "candidate_positive",
+      "reason": "L2环境方法：日常模块与专项作业分界清楚，adapt_with_conditions+跨项目条件复用。不得升格全业态通用。",
+      "risk_tags": [
+        "条件复用",
+        "禁升格全业态"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9013-ABE2CFCF",
+      "membership": "not_selected",
+      "reason": "L1能力图谱叙述，含CAPEX/招商/投资回报接口，易被写成可交付承诺；不适合本轮方法/正文主种子，也缺少可对撞的数字指纹。",
+      "risk_tags": [
+        "禁能力超承诺",
+        "无授权不得写后半段"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9014-F3744E88",
+      "membership": "candidate_positive",
+      "reason": "L1正文种子：金融办公多角色需求拆解，已限定为访谈假设而非已调研事实，适合需求章节改写。",
+      "risk_tags": [
+        "禁当已调研事实",
+        "仅金融办公假设"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9015-BA87C6D1",
+      "membership": "candidate_guardrail",
+      "reason": "L0公司培训制度，含公司培训部主体与季度考核节点；structure_only。拦截把原培训主体/频次写成新项目承诺。",
+      "risk_tags": [
+        "禁公司主体原名",
+        "禁频次原值承诺",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9016-148019BD",
+      "membership": "candidate_guardrail",
+      "reason": "L0公司数字化产品路线，含三阶段范围及极光等原名；structure_only。拦截产品名、阶段范围当现行能力。",
+      "risk_tags": [
+        "禁品牌原名",
+        "禁产品路线当承诺",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9017-EC5D2161",
+      "membership": "candidate_positive",
+      "reason": "L2会议SOP：会前会中会后+岗位责任分置完整，direct_reference+general_reference。小项目可合并岗位，不可省设备保障与会后恢复。",
+      "risk_tags": [
+        "岗位可合并不可漏项"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9018-9C2B14BD",
+      "membership": "candidate_positive",
+      "reason": "L1会前检查清单，适合正文附属叙述；分钟参数须按卫生规范与会议等级校准，不得升格为行业标准或与9017合并成标准时点方法。",
+      "risk_tags": [
+        "禁分钟数升格行业标准",
+        "时点须校准",
+        "L1参数非L3"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9019-03A470D6",
+      "membership": "candidate_positive",
+      "reason": "L2清洁作业方法，一般顺序与高信息安全附加控制已拆开，条件复用清晰。资料禁看条款不得写成全场景规范。",
+      "risk_tags": [
+        "条件复用",
+        "禁资料保护条款无条件化"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9020-D5AB7C37",
+      "membership": "candidate_guardrail",
+      "reason": "历史保洁SLA（15分钟巡回、5/10/60分钟到场）+VIP保密协议，L0 historical_commitment、do_not_reuse、项目保密。主门禁：禁原值承诺。",
+      "risk_tags": [
+        "禁原值承诺",
+        "禁历史SLA外迁",
+        "项目保密",
+        "需核验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9021-6AB7A5E7",
+      "membership": "candidate_positive",
+      "reason": "L2环境供方履约方法：计划确认、立即纠偏、原因分析、问题档案、计划回写，direct_reference。提前一周等参数须按合同调整。",
+      "risk_tags": [
+        "计划提前量须按合同调整"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9022-A2D0A34B",
+      "membership": "candidate_guardrail",
+      "reason": "历史工程报修四节点时限（15分钟到场/10分钟检查/1小时修复），完整可执行承诺指纹。与9023方法配对：写错峰保养时不得复现原值。",
+      "risk_tags": [
+        "禁原值承诺",
+        "禁历史SLA外迁",
+        "项目保密",
+        "需核验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9023-D44FD830",
+      "membership": "candidate_positive",
+      "reason": "L2低干扰维保方法，识别高峰后错开保养窗口，可独立用于工程章节；法定/厂家/安全要求不得以低干扰为由延后。",
+      "risk_tags": [
+        "安全法定不可延后"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9024-24409852",
+      "membership": "candidate_positive",
+      "reason": "L2机房责任链：制定/审核/执行/抽查分置，有表可证。不得与查验编制或三级组织默认规则混用。",
+      "risk_tags": [
+        "岗位合并仍须制衡",
+        "勿与查验三级编制混用"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9025-6EF806D6",
+      "membership": "candidate_guardrail",
+      "reason": "L0公司机房制度：每日一次、记录保存3年、具名出入表单。拦截频次/年限冒充法规或新承诺；结构抽取须另建脱敏KU。",
+      "risk_tags": [
+        "禁频次年限当法规",
+        "禁表单原名",
+        "structure_only不得当正文",
+        "须与现行规范另核"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9026-24C79713",
+      "membership": "candidate_guardrail",
+      "reason": "历史故障分级与紧急响应时限（5分钟/1小时），L0 historical_commitment、do_not_reuse。拦截把投标SLA写成新项目应急标准。",
+      "risk_tags": [
+        "禁原值承诺",
+        "禁历史SLA外迁",
+        "项目保密",
+        "需核验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9027-123D2E65",
+      "membership": "candidate_guardrail",
+      "reason": "L0相关方作业公司制度，含具名监控表及来源中的每月10日截点（已声明非固定节点）。拦截日期模板化、表单原名及把公司EHS规则冒充法规。",
+      "risk_tags": [
+        "禁日期模板化",
+        "禁表单原名",
+        "禁公司制度冒充法规",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9028-AAA62083",
+      "membership": "candidate_positive",
+      "reason": "L2投诉闭环完整（登记—判定—责任—方案—批示—实施—复盘），direct_reference+general_reference。合规/重大声誉须切专项。",
+      "risk_tags": [
+        "合规声誉须切专项"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9029-6055B5F1",
+      "membership": "candidate_guardrail",
+      "reason": "L0具名街区项目事实（台东步行街平台与应急联动），structure_only+same_project_only。拦截地名与项目机制外迁；闭环方法须另建脱敏KU。",
+      "risk_tags": [
+        "禁项目外迁",
+        "禁地名原名",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9030-FCDC64A4",
+      "membership": "candidate_guardrail",
+      "reason": "L0服务中心筹备日历（4月30日/7月15日/7月25日），do_not_reuse、项目保密。主门禁：禁把历史日期写成新计划节点。",
+      "risk_tags": [
+        "禁日期模板化",
+        "禁项目外迁",
+        "项目保密"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9031-D7CF1DDD",
+      "membership": "candidate_positive",
+      "reason": "L2街区工单闭环（上报—分配—实施—求助—验收—回写），direct_reference但须有统一平台与验收角色，属条件方法种子。",
+      "risk_tags": [
+        "条件复用",
+        "无平台授权须重构"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9032-628A35FA",
+      "membership": "not_selected",
+      "reason": "L1监测与外部协同清单，reuse_mode为structure_only，不满足Positive主闸门；交管/公安接口也非本轮数字类主门禁，留作结构原材料。",
+      "risk_tags": [
+        "structure_only不得当正文",
+        "禁假定接口已具备"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9033-AC519F9D",
+      "membership": "candidate_guardrail",
+      "reason": "L0平台上线历史排期，含6.17–6.30、9.30等日历。拦截把原日期或反推精确工期写成新项目实施计划。",
+      "risk_tags": [
+        "禁日期模板化",
+        "禁项目外迁",
+        "项目保密"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9034-31EA464B",
+      "membership": "candidate_positive",
+      "reason": "L2市政一体化业务解构步骤（测绘—分类—范围—人机配置—标记—实施），条件复用；人机数字本身在9035拦截。",
+      "risk_tags": [
+        "条件复用",
+        "禁跳过权限直接配人机"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9035-001A3E59",
+      "membership": "candidate_guardrail",
+      "reason": "L0 data_fact：44人/4台设备/路名/1小时与2小时巡逻频次，same_project_only且须核验。拦截配置与路名外迁，仅可作必须重测的参照点。",
+      "risk_tags": [
+        "禁编制外迁",
+        "禁路名原名",
+        "禁频次原值",
+        "须重测",
+        "项目保密",
+        "需核验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9036-44D80DD1",
+      "membership": "candidate_guardrail",
+      "reason": "L0公司/合作模式中枢，品牌名E控中心及街道级远程调度权限。拦截对外稿出现原名与组织归属照搬。",
+      "risk_tags": [
+        "禁品牌原名",
+        "禁组织权限外迁",
+        "structure_only不得当正文"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9037-C6ACC333",
+      "membership": "candidate_positive",
+      "reason": "L2承接查验按对象分组（消防/建筑装修/机电/钥匙成品保护），direct_reference+general_reference。人数与专业边界须随移交清单变。",
+      "risk_tags": [
+        "人数专业边界须随清单变"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9038-8015EFDE",
+      "membership": "candidate_guardrail",
+      "reason": "历史设备KPI原值（100%/98%/95%及维保及时性），L0 historical_commitment。百分比结构可另案重定，原值不得当运行事实。",
+      "risk_tags": [
+        "禁原值承诺",
+        "禁KPI原值外迁",
+        "项目保密",
+        "需核验",
+        "分级口径未定义"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9039-FE41C21F",
+      "membership": "candidate_positive",
+      "reason": "L2维保计划两层架构（全生命周期策略+年度排程），direct_reference。隔油池等举例可替换；缺档案时不能只靠经验排程。",
+      "risk_tags": [
+        "举例可替换",
+        "缺档案不得只靠经验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9040-BDE13596",
+      "membership": "candidate_guardrail",
+      "reason": "L0进场过程项目事实，evidence_only+项目保密；已排除无证据“五周”。拦截把人员留用/交接条件当通用进场模板。",
+      "risk_tags": [
+        "禁项目外迁",
+        "禁无证据工期",
+        "项目保密",
+        "evidence_only"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9041-9457A77A",
+      "membership": "candidate_guardrail",
+      "reason": "L0政企启动前置事实，含无管小区收费合法路径与政府对接。拦截把收费路径、授权和结算方式模板化到新项目。",
+      "risk_tags": [
+        "禁收费路径模板化",
+        "禁政府授权外迁",
+        "项目保密",
+        "须法律合规核验"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    },
+    {
+      "knowledge_unit_id": "KU-9042-62269503",
+      "membership": "candidate_guardrail",
+      "reason": "L1商户关系叙述含背景/偏好收集与量身定制宣传口径，隐私与同意约束是本轮更高价值门禁。不作正文主种子，避免生成过度收集语句。",
+      "risk_tags": [
+        "禁隐私过度收集",
+        "禁宣传口径当方法",
+        "须商户同意"
+      ],
+      "source_version": "S1-005_WP2_final_accepted_B1.2"
+    }
+  ],
+  "limitations": [
+    "本编目是Candidate Golden Corpus外部成员资格，不是Production Corpus，也不得称为正式Golden已建立。",
+    "未改写任何KU字段；membership仅存在于本外部编目。",
+    "每条仅一个primary membership；Positive与Guardrail互斥；accepted不等于自动入选。",
+    "L0即使含可迁移结构也不得进Positive；脱敏新KU本任务不新建。",
+    "KU-9002/9009因core超写本轮not_selected；KU-9010/9013/9032因平台依赖、能力超承诺或structure_only主闸门未过而not_selected。",
+    "样本无regulation_or_standard_reference与L3，法规类保持空位。",
+    "KU-9035/9038的freshness_check_required按B1.2保留在原KU，本轮只作为Guardrail拦截原值，不解释为可免核验引用。",
+    "KU-9003范围争议、KU-9005编制经验数字、KU-9018分钟参数均只作编目风险标记，不得升格为行业规则或Schema。"
+  ],
+  "generated_at": "2026-08-26T13:01:23+08:00",
+  "source_snapshot": "bundled_asset:knowledge/accepted_ku_b1.2.jsonl",
+  "counts": {
+    "candidate_guardrail": 19,
+    "candidate_positive": 18,
+    "not_selected": 5
+  },
+  "grok_task_id": "S1-005-CANDIDATE-CORPUS-20260826-125850",
+  "grok_model": "grok-4.6-build",
+  "reasoning": "xhigh",
+  "downgrade": false
+}

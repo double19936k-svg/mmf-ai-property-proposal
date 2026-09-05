@@ -1,0 +1,113 @@
+{
+  "model": "User Writing Style Model",
+  "version": "V0.2 Candidate",
+  "status": "candidate_pending_human_acceptance",
+  "generated_date": "2026-08-24",
+  "applies_to": ["PPT", "Word_Tender", "Content_Draft"],
+  "sources": [
+    "03_User_Writing_Style_Model_V0.1/User_Writing_Style_Model_V0.1.md",
+    "03_User_Writing_Style_Model_V0.1/04_待人工确认项列表.md",
+    "04_User_Writing_Style_Model_V0.2_Candidate/01_V0.1人工校准决策记录.md",
+    "Todd_S1-002_Human_Acceptance_Feedback_2026-08-24"
+  ],
+  "rule_count": 57,
+  "tier_counts": {
+    "mandatory": 15,
+    "default": 13,
+    "conditional": 17,
+    "prohibited": 12
+  },
+  "priority_order": [
+    "current_project_facts_and_mandatory_requirements",
+    "mandatory",
+    "conditional_when_triggered",
+    "default",
+    "sample_observation_and_inference"
+  ],
+  "rules": [
+    {"id":"M-001","tier":"mandatory","scope":["all"],"rule":"从当前项目事实和客户/场景出发，不先搭方法论模型。","source_refs":["V0.1-1.1","CAL-04"]},
+    {"id":"M-002","tier":"mandatory","scope":["all"],"rule":"生成前明确项目类型、阶段、采购角色、使用者和强制响应项。","source_refs":["V0.1-8"]},
+    {"id":"M-003","tier":"mandatory","scope":["all"],"rule":"章节和标题必须可识别业务对象或项目任务。","source_refs":["V0.1-1.3","CAL-06"]},
+    {"id":"M-004","tier":"mandatory","scope":["all"],"rule":"核心措施块至少写清对象和动作，必要时写清责任、标准、记录或成果。","source_refs":["V0.1-1.4","V0.1-8"]},
+    {"id":"M-005","tier":"mandatory","scope":["PPT"],"rule":"PPT中应急管理与培训分开表达。","source_refs":["CAL-07"]},
+    {"id":"M-006","tier":"mandatory","scope":["Word_Tender"],"rule":"证据表单、预案和证书按当前招标评分点展开，不固定全量配置。","source_refs":["CAL-09"]},
+    {"id":"M-007","tier":"mandatory","scope":["all"],"rule":"案例必须说明与当前项目的可比点。","source_refs":["CAL-10"]},
+    {"id":"M-008","tier":"mandatory","scope":["all"],"rule":"数值、承诺、法规和效果数据必须有当前或可核验来源。","source_refs":["V0.1-7-11"]},
+    {"id":"M-009","tier":"mandatory","scope":["all"],"rule":"未知数值与边界集中进入澄清清单。","source_refs":["V0.1-7-10"]},
+    {"id":"M-010","tier":"mandatory","scope":["all"],"rule":"前介、查验、报事/投诉、维修、应急、供应商和品质整改需有流程与责任。","source_refs":["V0.1-6.3"]},
+    {"id":"M-011","tier":"mandatory","scope":["all"],"rule":"品质管理写清标准/计划、检查、记录、整改和复核。","source_refs":["V0.1-3-4"]},
+    {"id":"M-012","tier":"mandatory","scope":["PPT","Word_Tender"],"rule":"PPT与Word按媒介重组，不机械缩写或扩写。","source_refs":["V0.1-7-12"]},
+    {"id":"M-013","tier":"mandatory","scope":["all"],"rule":"闭环只用于写清具体步骤的流程，不在总体策略和每个模块重复使用。","source_refs":["CAL-21"]},
+    {"id":"M-014","tier":"mandatory","scope":["all"],"rule":"当前项目事实、强制要求、评分与合规边界优先于风格规则。","source_refs":["V0.1-0"]},
+    {"id":"M-015","tier":"mandatory","scope":["all"],"rule":"输出优先解决项目问题，不追求表达创新；创新表达必须服务于业务理解。","source_refs":["Todd-Feedback-2026-08-24-2"]},
+
+    {"id":"D-001","tier":"default","scope":["all"],"rule":"常规项目按项目概况—客户/业态分析—服务设想—专业服务—保障组织。","source_refs":["CAL-04"]},
+    {"id":"D-002","tier":"default","scope":["PPT","Word_Tender"],"rule":"使用管理目标、服务保障、服务模式等客观标题，不用“我们的X”。","source_refs":["CAL-02"]},
+    {"id":"D-003","tier":"default","scope":["all"],"rule":"使用客户、工程、环境、秩序/安全等熟悉业务标题，再按项目删减。","source_refs":["CAL-06"]},
+    {"id":"D-004","tier":"default","scope":["PPT","Word_Tender"],"rule":"推荐使用“服务措施”作为章节或内容块用词。","source_refs":["CAL-20"]},
+    {"id":"D-005","tier":"default","scope":["all"],"rule":"使用具体名词+现场动作+管理结果组织正文。","source_refs":["V0.1-1.4"]},
+    {"id":"D-006","tier":"default","scope":["PPT"],"rule":"PPT为中等至中高信息密度，每页围绕一个主题。","source_refs":["V0.1-2.1"]},
+    {"id":"D-007","tier":"default","scope":["PPT"],"rule":"每页先给判断或主题，再给措施、流程、标准或证据。","source_refs":["V0.1-2.1"]},
+    {"id":"D-008","tier":"default","scope":["Word_Tender"],"rule":"按评分点—章节—措施—标准—证据建立响应关系。","source_refs":["V0.1-2.2"]},
+    {"id":"D-009","tier":"default","scope":["PPT","industrial_park","commercial"],"rule":"主动评估并提高数字化权重，但必须对应具体场景或服务动作。","source_refs":["CAL-08"]},
+    {"id":"D-011","tier":"default","scope":["PPT"],"rule":"项目理解和客户/场景分析优先于公司介绍。","source_refs":["V0.1-1.5","CAL-01"]},
+    {"id":"D-012","tier":"default","scope":["PPT"],"rule":"不展开3—6页通用公司介绍，优先留给项目判断和服务措施。","source_refs":["CAL-01"]},
+    {"id":"D-013","tier":"default","scope":["all"],"rule":"案例和证据靠近它所支撑的判断、措施或评分项。","source_refs":["V0.1-6.5","CAL-10"]},
+    {"id":"D-014","tier":"default","scope":["PPT"],"rule":"口号最多作为引导，后续用工作内容、流程、标准和案例支撑。","source_refs":["V0.1-2.1"]},
+
+    {"id":"C-001","tier":"conditional","scope":["PPT"],"condition":"important_presentation_or_business_proof","rule":"仅重要汇报、商务证明或甲方要求时保留公司介绍。","source_refs":["CAL-01"]},
+    {"id":"C-002","tier":"conditional","scope":["all"],"condition":"new_under_construction_or_delivery_project","rule":"设前期介入和承接查验专章；已运营项目仅在接管需求时保留。","source_refs":["CAL-05"]},
+    {"id":"C-003","tier":"conditional","scope":["office"],"condition":"bank_finance_headquarters_or_explicit_requirement","rule":"强化会务、高管区、保密和EHS。","source_refs":["CAL-11"]},
+    {"id":"C-004","tier":"conditional","scope":["urban_renewal","public_space"],"condition":"matching_project_type","rule":"可使用大物管、城市治理和全域运营，但必须落到现场措施。","source_refs":["CAL-12"]},
+    {"id":"C-005","tier":"conditional","scope":["commercial"],"condition":"current_project_role_boundary_available","rule":"招商与经营协同的责任来自当前资料，不推定物业承担招商经营责任。","source_refs":["CAL-13"]},
+    {"id":"C-006","tier":"conditional","scope":["FM"],"condition":"real_project_available","rule":"不调用固定双模型，按实际采购角色重组。","source_refs":["CAL-14"]},
+    {"id":"C-007","tier":"conditional","scope":["wellness"],"condition":"real_project_available","rule":"不调用固定分支，按客户、健康、生活和社群场景重新分析。","source_refs":["CAL-15"]},
+    {"id":"C-008","tier":"conditional","scope":["Content_Draft","PPT","Word_Tender"],"condition":"internal_draft_only","rule":"工作包仅内部底稿可用；对外改为工作内容、专项工作或工作计划。","source_refs":["CAL-16"]},
+    {"id":"C-009","tier":"conditional","scope":["all"],"condition":"concrete_review_object_and_action_available","rule":"运营性审查可保留，但必须写清设计、施工、系统、使用或运营角度的实际审查动作。","source_refs":["CAL-17"]},
+    {"id":"C-010","tier":"conditional","scope":["all"],"condition":"contract_or_tender_uses_exit_acceptance","rule":"可用退出验收；否则使用成果移交、工作交接和合同验收。","source_refs":["CAL-18"]},
+    {"id":"C-011","tier":"conditional","scope":["all"],"condition":"client_uses_same_acronym_or_internal_draft","rule":"可保留RACI/SOP/SLA/KPI；对外正文否则中文化。","source_refs":["CAL-19"]},
+    {"id":"C-012","tier":"conditional","scope":["all"],"condition":"procurement_role_is_consulting","rule":"顾问用于审查、建议、培训和督导，不与抽象概念连续绑定。","source_refs":["V0.1-4.2"]},
+    {"id":"C-013","tier":"conditional","scope":["all"],"condition":"governance_has_specific_object","rule":"治理可用于供应商、质量或城市治理，不作全文总方法。","source_refs":["V0.1-4.2"]},
+    {"id":"C-014","tier":"conditional","scope":["all"],"condition":"real_lifecycle_meaning_exists","rule":"生命周期可用于工程设施或项目阶段，不叠加价值链和成果闭环。","source_refs":["V0.1-4.2"]},
+    {"id":"C-015","tier":"conditional","scope":["all"],"condition":"real_shared_boundary_exists","rule":"接口只用于共享设备、共享区域或跨单位交界，普通配合写责职分工。","source_refs":["V0.1-7-6"]},
+    {"id":"C-016","tier":"conditional","scope":["model_evidence"],"condition":"representative_corpus_interpretation","rule":"可提高代表语料整体权重，但具体文件和句子仍需区分本人策划、团队整合和公司模板。","source_refs":["CAL-22"]},
+    {"id":"C-017","tier":"conditional","scope":["commercial"],"condition":"project_positioning_contract_scope_and_property_role_support_inclusion","rule":"根据项目定位、合同范围和物业角色评估是否纳入招商与经营协同；如纳入，再按C-005明确责任边界。","source_refs":["Todd-Feedback-2026-08-24-1","CAL-13"]},
+
+    {"id":"P-001","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不复用历史企业口号为个人表达。","source_refs":["CAL-03"]},
+    {"id":"P-002","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用一个治理中枢、两种模式、四个阶段等自创模型代替项目工作。","source_refs":["V0.1-4.1"]},
+    {"id":"P-003","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用治理节奏代替工作安排、会议、巡场和审签。","source_refs":["V0.1-4.1"]},
+    {"id":"P-004","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用九维运营就绪代替具体筹备事项。","source_refs":["V0.1-4.1"]},
+    {"id":"P-005","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用能力转移闭环、连续价值链和统一成果闭环代替具体工作。","source_refs":["V0.1-4.1"]},
+    {"id":"P-006","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"用户可见稿不用六类工作包、并行工作包。","source_refs":["CAL-16"]},
+    {"id":"P-007","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用共享治理底座、差异化前台等产品架构隐喻。","source_refs":["V0.1-4.1"]},
+    {"id":"P-008","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用能力成熟度和能力基线代替团队现状与培训执行。","source_refs":["V0.1-4.1"]},
+    {"id":"P-009","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用阶段门、质量门和转段逻辑代替阶段完成与甲方确认。","source_refs":["V0.1-4.1"]},
+    {"id":"P-010","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不用证据治理和证据架构代替档案、记录、台账和报告。","source_refs":["V0.1-4.1"]},
+    {"id":"P-011","tier":"prohibited","scope":["PPT","Word_Tender"],"rule":"不直接使用行动出口、阻塞、回写版本、场景验证脚本和终态等研发语言。","source_refs":["V0.1-4.1"]},
+    {"id":"P-012","tier":"prohibited","scope":["all"],"rule":"不从历史方案迁移无当前依据的人数、时间、频次、KPI、成本、法规和效果数据。","source_refs":["V0.1-7-11"]}
+  ],
+  "confirmed_interpretations": [
+    "CAL-13_commercial_role_boundary",
+    "CAL-17_operational_review_interpretation",
+    "CAL-22_authorship_weight_interpretation"
+  ],
+  "retired_rule_ids": [
+    {
+      "id": "D-010",
+      "reason": "Todd反馈：商业方案不再默认强制纳入招商与经营协同",
+      "replacement": "C-017"
+    }
+  ],
+  "pending_acceptance_focus": [
+    "M-015_project_problem_priority",
+    "C-017_commercial_inclusion_assessment",
+    "full_V0.2_candidate_acceptance"
+  ],
+  "not_completed": [
+    "historical_gap_learning",
+    "V0.2_holdout_validation",
+    "V0.2_human_acceptance",
+    "RAG_or_vector_database",
+    "MVP_generation_chain"
+  ]
+}

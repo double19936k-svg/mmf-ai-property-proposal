@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "Grok_Bridge_V0.1_Task",
+  "title": "Grok Bridge V0.1 single-turn task",
+  "type": "object",
+  "required": ["task_id", "instruction", "working_directory"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "task_type": {"type": "string"},
+    "instruction": {"type": "string", "minLength": 1},
+    "allowed_inputs": {"type": "array", "items": {"type": "string"}, "default": []},
+    "working_directory": {"type": "string", "minLength": 1},
+    "output_format": {"const": "json", "default": "json"},
+    "web_search": {"const": false, "default": false},
+    "subagents": {"const": false, "default": false},
+    "max_turns": {"const": 1, "default": 1},
+    "permission_mode": {"const": "plan", "default": "plan"},
+    "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 1800, "default": 300},
+    "expected_output": {"type": "object", "default": {"type": "structured_text"}}
+  },
+  "additionalProperties": true
+}

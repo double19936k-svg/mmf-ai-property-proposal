@@ -1,0 +1,18 @@
+{
+  "grok_executable": "",
+  "runtime_root": "runtime",
+  "proxy": {
+    "enabled": false,
+    "url": "",
+    "no_proxy": "localhost,127.0.0.1"
+  },
+  "defaults": {
+    "output_format": "json",
+    "web_search": false,
+    "subagents": false,
+    "max_turns": 1,
+    "permission_mode": "plan",
+    "timeout_seconds": 300
+  },
+  "notes": "Optional Local Grok Bridge. Leave grok_executable empty to auto-detect PATH or %USERPROFILE%\\.grok\\bin\\grok.exe. Do not store API keys here."
+}
