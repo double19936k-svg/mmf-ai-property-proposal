@@ -10,10 +10,8 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 
 当前定位：**AI 辅助生成初稿 + 人工最终审核。**  
 不是全自动投标，也不能替代专业判断。
-<img width="1321" height="905" alt="image" src="https://github.com/user-attachments/assets/9c880bf7-120d-4e40-a465-03eab77972a9" />
-<img width="1400" height="875" alt="image" src="https://github.com/user-attachments/assets/45fd58bb-73c5-4eee-8c59-c95a0de59298" />
-<img width="1385" height="875" alt="image" src="https://github.com/user-attachments/assets/6d5c82af-bdde-4a0d-bc47-81bc6679340b" />
-<img width="1385" height="888" alt="image" src="https://github.com/user-attachments/assets/5f888640-e6c5-40e5-b874-b2c7e09a97d2" />
+<img width="1321" height="905" alt="image" src="https://github.com/user-attachments/assets/9c880bf7-120d-4e40-a465-03eab77972a9" />  <img width="1400" height="875" alt="image" src="https://github.com/user-attachments/assets/45fd58bb-73c5-4eee-8c59-c95a0de59298" />
+<img width="1385" height="875" alt="image" src="https://github.com/user-attachments/assets/6d5c82af-bdde-4a0d-bc47-81bc6679340b" />  <img width="1385" height="888" alt="image" src="https://github.com/user-attachments/assets/5f888640-e6c5-40e5-b874-b2c7e09a97d2" />
 
 ---
 
