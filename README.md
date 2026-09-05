@@ -93,7 +93,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\launch_mmf.ps1
 ```
 
-不要把 `runs/`、`logs/`、`output/`、`.env`、`config/providers.local.json` 提交到 Git。
 
 ---
 
