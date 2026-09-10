@@ -1,14 +1,19 @@
-# GitHub Release Candidate Notes (V0.1)
+# GitHub Release Candidate Notes
 
-本目录是独立候选包，**尚未 push，也尚未创建 GitHub 远程仓库。**
+本目录是 Public Repository 的 staging area，对应 GitHub：
 
-请仓库所有者确认后再上传。
+`double19936k-svg/mmf-ai-property-proposal`
 
-## 需要确认
+当前公开版本：**v0.1.1-alpha**（R2 Stability & Performance）。
 
-1. 正式开源许可：当前为 `LICENSE_PENDING.md`，未套 MIT。
-2. 公开仓库名称与可见性（Public / Private）。
-3. 知识库条目已脱敏来源路径和客户名；是否还需要进一步删减行业方法论内容。
-4. 源码提示词里仍有内部评审者称呼（Todd 作为产品角色，不是路径或密钥）。若对外不想出现该称呼，需要另开一轮文案替换。
-5. 是否要把截图（本机界面）补进 README。当前只有结构示意，没有真实运行截图。
-6. 若 API Key 曾经粘贴到聊天工具或共享日志，请自行到千问 / Kimi / xAI 后台轮换。本候选包文件中未发现真实 Key。
+## 必须保持
+
+1. 正式开源许可未定：继续使用 `LICENSE_PENDING.md`，不要写成 MIT / Apache / GPL。
+2. 不上传真实客户招标、真实生成 Word、真实 Provider Run。
+3. 不上传 API Key、本机凭证、个人绝对路径。
+4. `runs/`、`logs/`、`output/`、`checkpoint/` 只保留空目录。
+5. Demo 只用虚构/脱敏内容。
+
+## 已知 Alpha 限制
+
+自动 QA 不能替代人工终审。Needs Review 表示可下载但仍需人工审核，不是生成失败。

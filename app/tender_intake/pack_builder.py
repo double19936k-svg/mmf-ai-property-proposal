@@ -29,6 +29,24 @@ REQUIREMENT_BUCKETS = {
 HIGH_IMPACT_TYPES = {"staffing", "service_hours", "sla_kpi", "service_scope", "exclusion", "contract_or_duration", "commercial_or_assessment", "scoring"}
 MALL_TERMS = ("商场", "闭店", "店铺", "专柜", "营业时间")
 INDUSTRIAL_TERMS = ("产业园", "园区", "厂房", "厂区")
+NON_SOLUTION_CONTENT_CLASSES = {"BID_FORM_TEMPLATE", "LEGAL_FORM_TEMPLATE", "AUTHORIZATION_TEMPLATE", "ADMINISTRATIVE_TEMPLATE"}
+
+
+def _tender_content_class(text: str, requirement_type: str, source: dict[str, Any] | None = None) -> str:
+    blob = " ".join([str(text or ""), " / ".join((source or {}).get("heading_path") or [])])
+    if re.search(r"本授权书声明|授权委托书|法定代表人授权书|被授权人的姓名|授权代表签字", blob):
+        return "AUTHORIZATION_TEMPLATE"
+    if re.search(r"注册于[（(]国家或地区的名称[）)]|法人代表姓名|法定代表人证明|营业执照复印件|资格证明", blob):
+        return "LEGAL_FORM_TEMPLATE"
+    if re.search(r"投标书格式|投标函格式|服务费报价单|报价表|商务标书|技术标书格式|[（(]项目名称[）)]|[（(]合同名称[）)]", blob):
+        return "BID_FORM_TEMPLATE"
+    if re.search(r"投标截止|投标有效期|开标时间|密封|外装信封|递交投标文件|招标编号", blob):
+        return "ADMINISTRATIVE_TEMPLATE"
+    if requirement_type == "scoring":
+        return "SCORING_REQUIREMENT"
+    if requirement_type == "project_fact":
+        return "PROJECT_FACT"
+    return "SERVICE_REQUIREMENT"
 
 
 def _normalize_text(text: str) -> str:
@@ -162,6 +180,8 @@ def _canonical_facts(requirements: list[dict[str, Any]]) -> dict[str, Any]:
         "contract_duration": r"(?:合同期|服务期|合同期限)\s*[：:]?\s*([^，。；\n]+)",
     }
     for requirement in requirements:
+        if requirement.get("excluded_from_solution_body"):
+            continue
         text = requirement["normalized_requirement"]
         for key, pattern in patterns.items():
             match = re.search(pattern, text)
@@ -214,6 +234,7 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         key = f"{requirement_type}|{_normalize_text(text)}|{value}|{unit}"
         if key not in merged:
             classification, boilerplate_reasons = _classification(text, requirement_type, industrial, project_names)
+            tender_content_class = _tender_content_class(text, requirement_type, source)
             merged[key] = {
                 "normalized_requirement": text, "requirement_type": requirement_type, "mandatory_level": level,
                 "confidence": max(0.0, min(1.0, float(candidate.get("confidence", 0.75)))),
@@ -221,6 +242,8 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
                 "value_normalized": value, "value_unit": unit, "domain": requirement_type,
                 "scoring_item_id": None, "sources": [], "confirmation_status": "UNCONFIRMED",
                 "todd_edit": None, "must_not_use_as_project_fact": classification != "PROJECT_SPECIFIC",
+                "tender_content_class": tender_content_class,
+                "excluded_from_solution_body": tender_content_class in NON_SOLUTION_CONTENT_CLASSES,
                 "_boilerplate_reasons": boilerplate_reasons,
             }
         if _source_key(source) not in {_source_key(existing) for existing in merged[key]["sources"]}:

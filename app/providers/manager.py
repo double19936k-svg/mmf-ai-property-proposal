@@ -152,6 +152,18 @@ class ProviderManager:
                 self._health_cache[provider_name] = (time.monotonic(), result)
                 return result
         result = provider.health_check()
+        try:
+            from .capability_probe import observe_from_health
+            result["capability_observation"] = observe_from_health(provider, result, force=bool(refresh), run_synthetic=bool(refresh))
+            observation = result["capability_observation"]
+            if refresh and observation.get("structured_response") == "rejected":
+                result = {**result, "available": False, "status": str(observation.get("status") or "unavailable").lower(), "message": "连接测试未通过结构化生成探测，请检查引擎设置或稍后重试。"}
+        except Exception:
+            result["capability_observation"] = {
+                "status": "UNAVAILABLE",
+                "reason": "probe_record_failed",
+                "unverified_fields": ["max_context", "tpm", "rpm", "native_max_level"],
+            }
         if live:
             self._record_live(provider_name, result)
         elif not result.get("available") and result.get("status") in {"installed", "pending_test"}:

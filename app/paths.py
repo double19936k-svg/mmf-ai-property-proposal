@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import Any
 
 
-APP_VERSION = "0.1.0-alpha"
+APP_VERSION = "0.1.1-alpha"
 APP_NAME = "MMF Desktop / Local"
 APP_STATUS = "initial_deployable"
 BASELINE_AUTHORITY = "MMF-006D R10"
-LONGFORM_ORCHESTRATOR_VERSION = "0.1-r1"
+LONGFORM_ORCHESTRATOR_VERSION = "0.1-r2.4"
 
 
 def load_build_manifest(package_root: Path | None = None) -> dict[str, Any]:

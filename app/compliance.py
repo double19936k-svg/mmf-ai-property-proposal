@@ -110,6 +110,54 @@ def evaluate_compliance(brief: dict[str, Any], positives: list[dict[str, Any]], 
     status = "BLOCK" if any(v["severity"] == "BLOCK" for v in unique) else "WARNING" if unique else "PASS"
     return {"schema_version": "provider-compliance-v0.1", "status": status, "violations": unique, "repair_constraints": list(dict.fromkeys(v["repair_constraint"] for v in unique)), "summary": {"block_count": sum(v["severity"] == "BLOCK" for v in unique), "warning_count": sum(v["severity"] == "WARNING" for v in unique)}, "runtime_provider_agnostic": True}
 
+
+_NUMERIC_REPAIR_PHRASE = "按项目确认的安排"
+_RANGE_DEBRIS = re.compile(r"\d+(?:\.\d+)?\s*[至到—–\-]\s*可根据项目确认要求确定响应安排")
+_MINUTE_RANGE = re.compile(r"\d+(?:\.\d+)?\s*[至到—–\-]\s*\d+(?:\.\d+)?\s*分钟")
+
+
+def _replace_numeric_token(text: str, token: str) -> str:
+    value = str(text or "")
+    compact = re.sub(r"\s+", "", token)
+    if not compact:
+        return value
+    escaped = re.escape(token)
+    value = re.sub(
+        rf"\d+(?:\.\d+)?\s*[至到—–\-]\s*{escaped}|{escaped}\s*[至到—–\-]\s*\d+(?:\.\d+)?\s*(?:分钟|小时|天|次)?",
+        _NUMERIC_REPAIR_PHRASE,
+        value,
+    )
+    if token in value:
+        value = value.replace(token, _NUMERIC_REPAIR_PHRASE)
+    value = _RANGE_DEBRIS.sub(_NUMERIC_REPAIR_PHRASE, value)
+    value = re.sub(r"\d+\s*[至到—–\-]\s*" + re.escape(_NUMERIC_REPAIR_PHRASE), _NUMERIC_REPAIR_PHRASE, value)
+    return re.sub(r"\s{2,}", " ", value).strip()
+
+
+def apply_numeric_commitment_repairs(generated: dict[str, Any], compliance: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Rewrite unconfirmed historic numbers with grammatical phrases, never mid-clause splices."""
+    from governance.text_sanitize import rewrite_unconfirmed_durations
+
+    tokens = []
+    for row in (compliance or {}).get("violations") or []:
+        if row.get("severity") == "BLOCK" and row.get("rule_id") in {"CG-001", "CG-005"} and row.get("evidence"):
+            tokens.append(str(row["evidence"]))
+    include_bare = bool(tokens)
+
+    def walk(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: walk(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [walk(item) for item in value]
+        if isinstance(value, str):
+            text = rewrite_unconfirmed_durations(value, include_bare_minutes=include_bare)
+            for token in tokens:
+                text = _replace_numeric_token(text, token)
+            return rewrite_unconfirmed_durations(text, include_bare_minutes=False)
+        return value
+
+    return walk(generated)
+
 def write_default_rules(path: Path) -> None:
     rules = {"schema_version": "provider-compliance-rules-v0.1", "rules": [
         {"rule_id": "CG-001", "name": "Unsupported Numeric Commitment", "default_severity": "BLOCK"},

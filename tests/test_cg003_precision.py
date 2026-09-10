@@ -8,7 +8,8 @@ APP = Path(__file__).resolve().parents[1] / "app"
 if str(APP) not in sys.path:
     sys.path.insert(0, str(APP))
 
-from compliance import evaluate_compliance
+from compliance import apply_numeric_commitment_repairs, evaluate_compliance
+from longform.factory import _repair_customer_text
 
 
 def _run(text: str) -> dict:
@@ -53,6 +54,37 @@ class CG003PrecisionTest(unittest.TestCase):
             report = _run(sample)
             self.assertTrue(_cg003_blocks(report), f"TP missed: {sample!r}")
             self.assertEqual(report["status"], "BLOCK")
+
+
+class CG001HistoricNumberRepairTests(unittest.TestCase):
+    def _ku(self) -> dict:
+        return {
+            "ku_id": "KU-9018-9C2B14BD",
+            "core_knowledge": "未启用会议室先通风15—20分钟，杯具及毛巾消毒不少于20分钟，茶叶会前30分钟备妥，服务人员会前10分钟到门口迎候。",
+            "applicability": "适用于正式会议和重要接待的会前检查清单。",
+            "non_applicable_conditions": "温度、消毒和迎候时点应按甲方制度、卫生要求及会议等级校准。",
+        }
+
+    def test_unconfirmed_30_minutes_is_rewritten_locally(self) -> None:
+        text = "茶叶等物料会前30分钟备妥，服务人员会前可根据项目确认要求确定响应安排到岗迎候。"
+        generated = {"artifact": {"paragraphs": [text]}}
+        report = evaluate_compliance({"requirements": "会议服务"}, [self._ku()], [], generated)
+        self.assertEqual(report["status"], "BLOCK")
+        self.assertTrue(any(row.get("evidence", "").replace(" ", "") == "30分钟" for row in report["violations"]))
+        repaired = apply_numeric_commitment_repairs(generated, report)
+        follow = evaluate_compliance({"requirements": "会议服务"}, [self._ku()], [], repaired)
+        self.assertNotEqual(follow["status"], "BLOCK", follow)
+        self.assertNotIn("30分钟", str(repaired))
+
+    def test_confirmed_30_minutes_is_kept(self) -> None:
+        text = "按招标文件要求，会前30分钟备妥茶叶。"
+        report = evaluate_compliance({"requirements": "会前30分钟备妥茶叶"}, [self._ku()], [], {"artifact": {"paragraphs": [text]}})
+        self.assertFalse(any(row.get("rule_id") == "CG-001" and row.get("severity") == "BLOCK" for row in report.get("violations") or []))
+
+    def test_minute_range_is_rewritten_as_a_unit(self) -> None:
+        repaired = _repair_customer_text("未启用会议室先通风15至20分钟。")
+        self.assertNotIn("15至", repaired)
+        self.assertNotIn("20分钟", repaired)
 
 
 if __name__ == "__main__":

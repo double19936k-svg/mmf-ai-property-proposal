@@ -19,7 +19,7 @@ from providers.mock import MockProvider
 
 def _pack() -> dict:
     requirements = [
-        {"requirement_id": "REQ-0001", "normalized_requirement": "项目位于示例城市示例路段", "domain": "project_fact", "mandatory_level": "MUST", "confirmation_status": "CONFIRMED"},
+        {"requirement_id": "REQ-0001", "normalized_requirement": "项目位于青岛市崂山区香港东路108号", "domain": "project_fact", "mandatory_level": "MUST", "confirmation_status": "CONFIRMED"},
         {"requirement_id": "REQ-0002", "normalized_requirement": "安全秩序管理含门岗巡逻与异常处置", "domain": "security", "mandatory_level": "MUST", "confirmation_status": "CONFIRMED"},
         {"requirement_id": "REQ-0003", "normalized_requirement": "工程巡检维保与故障闭环", "domain": "other", "mandatory_level": "MUST", "confirmation_status": "CONFIRMED"},
         {"requirement_id": "REQ-0004", "normalized_requirement": "客户投诉闭环与回访", "domain": "sla_kpi", "mandatory_level": "MUST", "confirmation_status": "CONFIRMED", "scoring_item_id": "SCR-01"},
@@ -29,9 +29,9 @@ def _pack() -> dict:
         "pack_id": "PACK-TEST-LONGFORM",
         "status": "ready_for_plan",
         "project_facts": {
-            "project_name": {"value": "示例综合体测试项目"},
-            "location": {"value": "示例城市示例路段"},
-            "gross_area": {"value": "约25万平方米（示例）"},
+            "project_name": {"value": "示例滨海科技园"},
+            "location": {"value": "青岛市崂山区香港东路108号"},
+            "gross_area": {"value": "252567平方米"},
         },
         "service_scope": {"included": [], "excluded": [{"text": "会议会务不在本次范围"}], "deprioritized": [], "conditional": []},
         "requirements": requirements,
@@ -42,7 +42,7 @@ def _pack() -> dict:
 
 def _brief() -> dict:
     return {
-        "project_name": "示例综合体测试项目",
+        "project_name": "示例滨海科技园",
         "project_type": "综合体",
         "scenario": "完整物业服务方案",
         "medium": "WORD",
@@ -172,6 +172,57 @@ class LongformOrchestratorTest(unittest.TestCase):
             self.assertEqual(plan_a["outline"], plan_b["outline"])
             self.assertEqual(len(result_a["generated"]["artifact"]["sections"]), len(result_b["generated"]["artifact"]["sections"]))
             self.assertEqual(result_a["capability"]["effective_settings"]["continuation"], result_b["capability"]["effective_settings"]["continuation"])
+
+    def test_bid_process_text_is_not_dumped_into_must_cover(self):
+        from planning.planner import is_bid_process_text
+        self.assertTrue(is_bid_process_text("投标单位应认真阅读招标文件中所有的事项、格式、条款和技术规范等"))
+        self.assertTrue(is_bid_process_text("外装信封上应清楚注明招标编号且密封处加盖公章"))
+        self.assertFalse(is_bid_process_text("产业园生产经营连续性对物业服务的影响"))
+        pack = _pack()
+        pack["requirements"].append({
+            "requirement_id": "REQ-BID-1",
+            "normalized_requirement": "投标单位应认真阅读招标文件中所有的事项、格式、条款和技术规范等",
+            "domain": "other",
+            "mandatory_level": "MUST",
+            "confirmation_status": "CONFIRMED",
+        })
+        bundle = build_planning_bundle(pack, _brief(), _selection(), production=True)
+        s01 = next(row for row in bundle["section_contracts"]["contracts"] if row["section_id"] == "S01-02")
+        self.assertFalse(any("招标文件" in str(item) for item in s01["must_cover"]))
+        self.assertFalse(any(row["requirement_id"] == "REQ-BID-1" for row in bundle["requirement_matrix"]["matrix"]))
+
+    def test_nested_bullet_group_is_not_json_debris(self):
+        from governance.artifact_qa import apply_artifact_repairs, evaluate_artifact
+        from longform.orchestrator import fragment_to_section
+        fragment = {
+            "section_id": "S01-01",
+            "title": "项目概况、服务范围与排除项",
+            "body_blocks": [
+                {"type": "", "content": "本方案适用于示例滨海科技园。"},
+                {"type": "bullet_group", "content": [
+                    {"title": "项目事实清单", "items": ["项目名称：示例滨海科技园物业顾问服务项目", "日常管理顾问内容涵盖：保洁服务管理、绿化服务管理、客户服务管理"]},
+                ]},
+            ],
+        }
+        section = fragment_to_section(fragment, "项目概况")
+        blob = "\n".join(section["paragraphs"] + section["bullets"])
+        self.assertIn("项目事实清单", blob)
+        self.assertIn("保洁服务管理", blob)
+        self.assertNotIn("{'title'", blob)
+        artifact = apply_artifact_repairs({"artifact": {"sections": [section]}})
+        qa = evaluate_artifact(artifact)
+        self.assertFalse(any(item.get("issue") == "JSON debris" for item in qa.get("findings") or []))
+
+    def test_repair_flattens_python_list_debris(self):
+        from governance.artifact_qa import apply_artifact_repairs, evaluate_artifact
+        debris = "[{'title': '待澄清事项', 'items': ['项目封闭/开放管理模式尚未确认', '人员配置规模未确认']}]"
+        generated = {"artifact": {"sections": [{"heading": "概况", "paragraphs": [debris], "bullets": []}]}}
+        repaired = apply_artifact_repairs(generated)
+        text = "\n".join(repaired["artifact"]["sections"][0]["paragraphs"])
+        self.assertIn("待澄清事项", text)
+        self.assertNotIn("{'title'", text)
+        qa = evaluate_artifact(repaired)
+        self.assertFalse(any(item.get("issue") == "JSON debris" for item in qa.get("findings") or []))
 
 
 if __name__ == "__main__":

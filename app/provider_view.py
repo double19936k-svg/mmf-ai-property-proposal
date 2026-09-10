@@ -76,6 +76,20 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
         else:
             user_status = "unavailable"
             user_message = "图片服务当前不可用"
+    elif name == "glm_zhipu":
+        display = "智谱 GLM"
+        if row.get("available"):
+            user_status = "connected"
+            user_message = "智谱GLM已连接"
+        elif not row.get("configured"):
+            user_status = "not_configured"
+            user_message = "请填写智谱 API Key后点测试连接。密钥在 open.bigmodel.cn 创建。"
+        elif any(token in f"{raw} {message}".lower() for token in ("auth", "401", "unauthorized")):
+            user_status = "authentication_required"
+            user_message = "智谱密钥无效或需要重新填写"
+        else:
+            user_status = "connected"
+            user_message = "智谱GLM已配置，可直接用于生成"
     elif name == "qwen_modelstudio":
         display = "千问 Model Studio"
         if row.get("available"):

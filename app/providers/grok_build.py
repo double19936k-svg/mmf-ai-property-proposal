@@ -98,7 +98,7 @@ class GrokBuildProvider(AIProvider):
                 system_prompt=request["system_prompt"],
                 working_directory=task_dir.parent,
                 run_dir=task_dir,
-                timeout_seconds=int(self.config.get("timeout", 1800)),
+                timeout_seconds=int(request.get("timeout_seconds") or self.config.get("timeout") or 1800),
                 max_network_retries=2,
                 agent_max_turns=int(request.get("agent_max_turns", 1)),
                 tools=request.get("tools"),
@@ -122,7 +122,7 @@ class GrokBuildProvider(AIProvider):
                     system_prompt=request["system_prompt"],
                     working_directory=task_dir.parent,
                     run_dir=task_dir,
-                    timeout_seconds=int(self.config.get("timeout", 1800)),
+                    timeout_seconds=int(request.get("timeout_seconds") or self.config.get("timeout") or 1800),
                     max_network_retries=2,
                     agent_max_turns=int(request.get("agent_max_turns", 1)),
                     tools=request.get("tools"),
@@ -136,6 +136,8 @@ class GrokBuildProvider(AIProvider):
                 classified = classify_provider_failure(code, str(exc), auth_probe=(probe or {}).get("health", {}).get("bridge_health", probe))
                 raise ProviderUnavailableError(f"Grok Bridge调用失败[{classified}]：{exc}", error_code=classified) from exc
         audit = bridge_result["audit"]
+        from .token_usage import extract_token_usage
+        usage = extract_token_usage(bridge_result.get("envelope") or {}, audit)
         metadata = self._task_metadata(
             task_id,
             session_id=audit.get("session_id"),
@@ -145,6 +147,12 @@ class GrokBuildProvider(AIProvider):
             finished_at=audit.get("finished_at"),
             bridge_used=True,
             bridge_attempts=audit.get("attempts", []),
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+            cache_read_tokens=usage.get("cache_read_tokens"),
+            cache_creation_tokens=usage.get("cache_creation_tokens"),
+            token_provenance=usage.get("provenance"),
+            envelope=bridge_result.get("envelope"),
         )
         write_json(task_dir / "provider_audit.json", metadata)
         return result, metadata

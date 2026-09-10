@@ -145,7 +145,7 @@ def _sentences(text: str) -> list[str]:
 def _evidence(requirement: dict[str, Any], text: str) -> tuple[str, str]:
     rid = requirement["requirement_id"]
     anchors = {
-        "REQ-0001": ("内部基线样例项目物业服务项目",),
+        "REQ-0001": ("青岛智造产业园物业服务项目",),
         "REQ-0002": ("产业园",),
         "REQ-0003": ("青岛市",),
         "REQ-0004": ("120000平方米", "120,000平方米", "12万平方米"),
@@ -305,6 +305,6 @@ def prepare_006d(*, run_root: Path, stage_root: Path, plan_root: Path, provider:
         original_overflow += bool(original_gate.get("overflow"))
         render_data = _ppt_renderer_data(payload, plan, index)
         ppt_slides.append({"slide_id": sid, "chapter_id": plan["chapter_id"], "slide_role": plan["slide_role"], "title": payload.get("headline") or plan["slide_title"], "subtitle": payload.get("subheadline", ""), "core_message": payload.get("key_message", ""), "source_trace": payload.get("source_trace", []), "status": payload.get("status", "READY"), **render_data})
-    ppt_input = {"brief": {"project_name": global_state["project_facts"]["project_name"]["value"], "project_type": global_state["project_facts"]["project_type"]["value"], "scenario": "物业服务方案", "requirements": "安全、专业、可执行的园区物业服务"}, "artifact": {"title": "内部基线样例项目物业服务方案", "subtitle": "DRAFT_FOR_FINAL_ACCEPTANCE", "slides": ppt_slides}, "source_run": str(run_root), "overflow": {"found": original_overflow, "resolved": original_overflow, "retained": 0}}
+    ppt_input = {"brief": {"project_name": global_state["project_facts"]["project_name"]["value"], "project_type": global_state["project_facts"]["project_type"]["value"], "scenario": "物业服务方案", "requirements": "安全、专业、可执行的园区物业服务"}, "artifact": {"title": "青岛智造产业园物业服务方案", "subtitle": "DRAFT_FOR_FINAL_ACCEPTANCE", "slides": ppt_slides}, "source_run": str(run_root), "overflow": {"found": original_overflow, "resolved": original_overflow, "retained": 0}}
     write_json(stage_root / "working" / "ppt_assembly_input.json", ppt_input)
     return {"freeze": freeze, "coverage": coverage, "repetition": repetition, "consistency": consistency, "governance": governance, "changes": changes, "ppt_overflow": ppt_input["overflow"]}

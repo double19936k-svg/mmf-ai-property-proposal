@@ -46,7 +46,7 @@ VALID_STATUSES = {
 
 AUTH_MARKERS = ("not authenticated", "no auth credentials", "not signed in", "login required", "unauthorized", "http 401", "status 401")
 PROXY_MARKERS = ("proxy error", "proxyconnect", "tunnel connection failed", "cannot connect to proxy")
-PERMISSION_MARKERS = ("permission denied", "access is denied", "operation not permitted", "sandbox")
+PERMISSION_MARKERS = ("permission denied", "access is denied", "access denied", "operation not permitted", "sandbox")
 SESSION_MARKERS = ("session error", "invalid session", "session expired", "failed to create session")
 MODEL_MARKERS = ("model unavailable", "model not found", "unknown model", "not available for this account")
 NETWORK_MARKERS = (
@@ -61,6 +61,14 @@ NETWORK_MARKERS = (
     "connection reset",
 )
 MAX_TURN_MARKERS = ("max turns reached", "maximum turns reached", "agent max turns")
+AUXILIARY_EXIT_SYNC_MARKERS = (
+    "final signal sync timed out",
+    "resident session actor exited unexpectedly",
+    "reaping as deadfailed",
+    "proactive bundle sync failed",
+    "extract_initial_tokens: no totaltokens found",
+)
+NORMAL_STOP_REASONS = {"end_turn", "stop", "completed", "end-turn"}
 
 
 class GrokBridgeError(RuntimeError):
@@ -361,25 +369,171 @@ def run_command(
     )
 
 
-def classify_cli_failure(stdout: str, stderr: str, returncode: int) -> str | None:
-    combined = f"{stdout}\n{stderr}".lower()
-    if any(marker in combined for marker in MAX_TURN_MARKERS):
+def public_envelope(outer: dict[str, Any]) -> dict[str, Any]:
+    cleaned = dict(outer)
+    cleaned.pop("thought", None)
+    return cleaned
+
+
+def try_parse_envelope(stdout: str) -> dict[str, Any] | None:
+    text = str(stdout or "").strip()
+    if not text.startswith("{") and "{" in text:
+        text = text[text.find("{") :]
+    if not text.startswith("{"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        try:
+            parsed, _consumed = decoder.raw_decode(text)
+        except json.JSONDecodeError:
+            return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def auxiliary_exit_sync_warnings(stderr: str) -> list[str]:
+    text = str(stderr or "")
+    lowered = text.lower()
+    hits = [marker for marker in AUXILIARY_EXIT_SYNC_MARKERS if marker in lowered]
+    return hits
+
+
+def remaining_cli_error_text(stderr: str) -> str:
+    """Drop known auxiliary exit-sync lines; leftover text is a real CLI error."""
+    leftover: list[str] = []
+    for line in str(stderr or "").splitlines():
+        lowered = line.lower()
+        if any(marker in lowered for marker in AUXILIARY_EXIT_SYNC_MARKERS):
+            continue
+        stripped = re.sub(r"\x1b\[[0-9;]*m", "", line).strip()
+        if stripped:
+            leftover.append(stripped)
+    return "\n".join(leftover)
+
+
+def validate_structured_against_schema(instance: Any, schema: dict[str, Any] | None, *, path: str = "") -> list[str]:
+    """Bounded JSON Schema subset: type, const, enum, required, properties, items."""
+    if not isinstance(schema, dict) or not schema:
+        return []
+    errors: list[str] = []
+    location = path or "$"
+    expected = schema.get("type")
+    if expected == "object":
+        if not isinstance(instance, dict):
+            return [f"{location}: expected object"]
+        for key in schema.get("required") or []:
+            if key not in instance:
+                errors.append(f"{location}.{key}: missing")
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        for key, child in props.items():
+            if key in instance and isinstance(child, dict):
+                errors.extend(validate_structured_against_schema(instance[key], child, path=f"{location}.{key}"))
+    elif expected == "array":
+        if not isinstance(instance, list):
+            return [f"{location}: expected array"]
+        item_schema = schema.get("items")
+        if isinstance(item_schema, dict):
+            for index, item in enumerate(instance):
+                errors.extend(validate_structured_against_schema(item, item_schema, path=f"{location}[{index}]"))
+    elif expected == "string":
+        if not isinstance(instance, str):
+            errors.append(f"{location}: expected string")
+    elif expected == "integer":
+        if isinstance(instance, bool) or not isinstance(instance, int):
+            errors.append(f"{location}: expected integer")
+    elif expected == "number":
+        if isinstance(instance, bool) or not isinstance(instance, (int, float)):
+            errors.append(f"{location}: expected number")
+    elif expected == "boolean":
+        if not isinstance(instance, bool):
+            errors.append(f"{location}: expected boolean")
+    elif expected == "null":
+        if instance is not None:
+            errors.append(f"{location}: expected null")
+    if "const" in schema and instance != schema.get("const"):
+        errors.append(f"{location}: const mismatch")
+    if "enum" in schema and instance not in (schema.get("enum") or []):
+        errors.append(f"{location}: enum mismatch")
+    return errors
+
+
+def evaluate_completed_response(
+    stdout: str,
+    *,
+    expected_model: str,
+    requested_model: str,
+    json_schema: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate a completed model envelope before generic exit-warning classification."""
+    envelope = try_parse_envelope(stdout)
+    if not envelope:
+        return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": "outer_envelope_not_json", "envelope": None, "structured": None}
+    stop = str(envelope.get("stopReason") or envelope.get("stop_reason") or "").strip().lower()
+    if stop in {"max_turns", "max-turns", "max_turn"} or any(marker in stop for marker in ("max turn", "max_turns")):
+        return {"ok": False, "code": "CLI_MAX_TURNS", "reason": "turn_limit_stop", "envelope": public_envelope(envelope), "structured": None}
+    if stop not in NORMAL_STOP_REASONS:
+        return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": f"abnormal_stop:{stop or 'missing'}", "envelope": public_envelope(envelope), "structured": None}
+    usage = envelope.get("modelUsage")
+    if not isinstance(usage, dict) or not usage:
+        return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": "missing_model_usage", "envelope": public_envelope(envelope), "structured": None}
+    models = list(usage.keys())
+    if not models_match_request(models, expected_model, requested_model):
+        return {"ok": False, "code": "MODEL_UNAVAILABLE", "reason": f"model_mismatch:{models}", "envelope": public_envelope(envelope), "structured": None, "actual_models": models}
+    structured = envelope.get("structuredOutput")
+    serialization_repair = None
+    if not isinstance(structured, dict) or not structured:
+        try:
+            structured, serialization_repair = parse_json_object(envelope.get("text", ""))
+        except GrokBridgeError:
+            return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": "empty_or_unparseable_structured_output", "envelope": public_envelope(envelope), "structured": None}
+    if not isinstance(structured, dict) or not structured:
+        return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": "empty_structured_output", "envelope": public_envelope(envelope), "structured": None}
+    if isinstance(json_schema, dict) and json_schema:
+        schema_errors = validate_structured_against_schema(structured, json_schema)
+        if schema_errors:
+            return {"ok": False, "code": "OUTPUT_CONTRACT_ERROR", "reason": "schema:" + ";".join(schema_errors[:8]), "envelope": public_envelope(envelope), "structured": structured}
+    return {
+        "ok": True,
+        "code": "SUCCESS",
+        "reason": "completed_response",
+        "envelope": public_envelope(envelope),
+        "structured": structured,
+        "actual_models": models,
+        "stop_reason": stop,
+        "serialization_repair": serialization_repair,
+        "downgrade": False,
+    }
+
+
+def classify_cli_error_channels(stdout: str, stderr: str, returncode: int, *, envelope_ok: bool = False) -> str | None:
+    """Classify process/CLI errors. Never use legitimate response body text as auth evidence."""
+    error_text = str(stderr or "")
+    if not envelope_ok:
+        error_text = f"{stdout}\n{stderr}"
+    lowered = error_text.lower()
+    if any(marker in lowered for marker in MAX_TURN_MARKERS):
         return "CLI_MAX_TURNS"
-    if any(marker in combined for marker in AUTH_MARKERS):
-        return "PROVIDER_AUTH_REQUIRED"
-    if any(marker in combined for marker in PROXY_MARKERS):
-        return "PROXY_ERROR"
-    if any(marker in combined for marker in PERMISSION_MARKERS):
+    if any(marker in lowered for marker in PERMISSION_MARKERS):
         return "PERMISSION_RESTRICTED"
-    if any(marker in combined for marker in SESSION_MARKERS):
+    if any(marker in lowered for marker in PROXY_MARKERS):
+        return "PROXY_ERROR"
+    if any(marker in lowered for marker in AUTH_MARKERS):
+        return "PROVIDER_AUTH_REQUIRED"
+    if any(marker in lowered for marker in SESSION_MARKERS):
         return "SESSION_ERROR"
-    if any(marker in combined for marker in MODEL_MARKERS):
+    if any(marker in lowered for marker in MODEL_MARKERS):
         return "MODEL_UNAVAILABLE"
-    if any(marker in combined for marker in NETWORK_MARKERS):
+    if any(marker in lowered for marker in NETWORK_MARKERS):
         return "NETWORK_ERROR"
     if returncode != 0:
         return "PROVIDER_RUNTIME_ERROR"
     return None
+
+
+def classify_cli_failure(stdout: str, stderr: str, returncode: int) -> str | None:
+    """Health/model-list classifier. Generation invoke uses evaluate_completed_response first."""
+    return classify_cli_error_channels(stdout, stderr, returncode, envelope_ok=False)
 
 
 def parse_json_object(value: Any) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -436,13 +590,23 @@ class GrokBridge:
             except FileNotFoundError as exc:
                 raise GrokBridgeError("CLI_NOT_FOUND", str(exc)) from exc
 
+    def _resolve_effort(self, requested: str | None) -> str:
+        allowed = {"low", "medium", "high", "xhigh"}
+        requested_norm = str(requested or "").strip().lower()
+        if requested_norm in allowed:
+            return requested_norm
+        configured = str(self.config.get("reasoning_effort") or "").strip().lower()
+        if configured in allowed:
+            return configured
+        return "low"
+
     def model_metadata(self) -> dict[str, Any]:
         return {
             "requested_model": self.config.get("model_alias", "grok-4.6"),
             "expected_model": self.config.get("expected_model", "grok-4.6"),
-            "reasoning": self.config.get("reasoning_effort", "xhigh"),
-            "automatic_downgrade_allowed": False,
-            "highest_capability_mode": True,
+            "reasoning": self.config.get("reasoning_effort", "low"),
+            "automatic_downgrade_allowed": True,
+            "highest_capability_mode": False,
         }
 
     def _health_probe(self, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -554,7 +718,7 @@ class GrokBridge:
         prompt_path = run_dir / "prompt.md"
         prompt_path.write_text(prompt, encoding="utf-8")
         metadata = self.model_metadata()
-        effort = str(reasoning_effort or metadata["reasoning"] or "high")
+        effort = self._resolve_effort(reasoning_effort)
         args = [
             self.executable,
             "--prompt-file", str(prompt_path),
@@ -581,56 +745,88 @@ class GrokBridge:
         started = utc_now()
         attempts: list[dict[str, Any]] = []
         completed: subprocess.CompletedProcess[str] | None = None
+        accepted: dict[str, Any] | None = None
+        last_stdout, last_stderr, last_rc = "", "", None
         for attempt in range(1, retry_limit + 2):
             attempt_started = utc_now()
+            auxiliary_warning = None
+            failure = None
+            stdout = ""
+            stderr = ""
             try:
                 completed = self._command_runner(args, workdir, timeout, proxy_env=self.proxy_env)
                 stdout = completed.stdout or ""
                 stderr = completed.stderr or ""
-                failure = classify_cli_failure(stdout, stderr, completed.returncode)
-                auxiliary_warning = None
-                if failure == "NETWORK_ERROR" and completed.returncode == 0:
-                    try:
-                        candidate_envelope = json.loads(stdout)
-                    except json.JSONDecodeError:
-                        candidate_envelope = None
-                    if isinstance(candidate_envelope, dict) and candidate_envelope.get("modelUsage") and "text" in candidate_envelope:
-                        auxiliary_warning = "CLI auxiliary sync warning occurred after a complete model response."
-                        failure = None
+                last_stdout, last_stderr, last_rc = stdout, stderr, completed.returncode
+                completed_response = evaluate_completed_response(
+                    stdout,
+                    expected_model=str(metadata["expected_model"]),
+                    requested_model=str(metadata["requested_model"]),
+                    json_schema=json_schema if isinstance(json_schema, dict) else None,
+                )
+                aux = auxiliary_exit_sync_warnings(stderr)
+                residual = remaining_cli_error_text(stderr)
+                if completed_response.get("ok") and not residual:
+                    # Complete valid response may suppress only known auxiliary
+                    # exit-sync warnings. Real auth/crash/leftover stderr still blocks.
+                    accepted = completed_response
+                    if aux or completed.returncode != 0:
+                        auxiliary_warning = "CLI auxiliary exit-sync warning after a complete valid model response."
+                    failure = None
+                elif completed_response.get("ok") and residual:
+                    channel = classify_cli_error_channels("", residual, completed.returncode, envelope_ok=True)
+                    failure = channel or "PROVIDER_RUNTIME_ERROR"
+                    accepted = None
+                else:
+                    parsed_outer = try_parse_envelope(stdout)
+                    generation_envelope = bool(
+                        parsed_outer
+                        and (
+                            parsed_outer.get("modelUsage")
+                            or parsed_outer.get("stopReason")
+                            or "structuredOutput" in parsed_outer
+                            or "text" in parsed_outer
+                        )
+                    )
+                    channel = classify_cli_error_channels(
+                        stdout,
+                        stderr,
+                        completed.returncode,
+                        envelope_ok=generation_envelope,
+                    )
+                    failure = channel or completed_response.get("code") or ("PROVIDER_RUNTIME_ERROR" if completed.returncode else "OUTPUT_CONTRACT_ERROR")
+                    if failure == "NETWORK_ERROR" and aux and completed.returncode != 0:
+                        # Sync noise without a complete body is still a failure.
+                        failure = channel or completed_response.get("code") or "PROVIDER_RUNTIME_ERROR"
             except subprocess.TimeoutExpired:
                 stdout, stderr, failure, auxiliary_warning = "", "", "NETWORK_ERROR", None
                 completed = None
+                last_stdout, last_stderr, last_rc = stdout, stderr, None
             attempts.append({
                 "attempt": attempt,
                 "started_at": attempt_started,
                 "finished_at": utc_now(),
                 "status": failure or "SUCCESS",
                 "auxiliary_warning": auxiliary_warning,
+                "cli_exit_code": None if completed is None else completed.returncode,
             })
             (run_dir / f"stdout_attempt_{attempt}.log").write_text(stdout, encoding="utf-8")
             (run_dir / f"stderr_attempt_{attempt}.log").write_text(stderr, encoding="utf-8")
-            if failure is None:
+            if failure is None and accepted is not None:
                 break
             if failure == "PROVIDER_AUTH_REQUIRED":
                 raise GrokBridgeError("PROVIDER_AUTH_REQUIRED", "Official auth probe rejected the current credential; no retry was attempted.")
             if failure != "NETWORK_ERROR" or attempt > retry_limit:
-                raise GrokBridgeError(failure, (stderr or stdout or failure)[-1000:])
+                raise GrokBridgeError(failure or "PROVIDER_RUNTIME_ERROR", (stderr or stdout or failure or "")[-1000:])
             time.sleep(min(2**attempt, 4))
-        if completed is None:
-            raise GrokBridgeError("NETWORK_ERROR", "Grok invocation timed out after network retries.")
-        try:
-            outer = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
-            raise GrokBridgeError("OUTPUT_CONTRACT_ERROR", f"Grok outer envelope was not valid JSON: {exc}") from exc
-        models = list((outer.get("modelUsage") or {}).keys())
-        if not models_match_request(models, str(metadata["expected_model"]), str(metadata["requested_model"])):
-            raise GrokBridgeError("MODEL_UNAVAILABLE", f"Model mismatch or downgrade detected: {models}")
-        structured = outer.get("structuredOutput")
-        serialization_repair = None
-        if not isinstance(structured, dict) or not structured:
-            structured, serialization_repair = parse_json_object(outer.get("text", ""))
-        if isinstance(structured, dict) and not structured:
-            raise GrokBridgeError("OUTPUT_CONTRACT_ERROR", "Grok returned an empty JSON object.")
+        if accepted is None:
+            if completed is None:
+                raise GrokBridgeError("NETWORK_ERROR", "Grok invocation timed out after network retries.")
+            raise GrokBridgeError("OUTPUT_CONTRACT_ERROR", (last_stderr or last_stdout or "Grok did not return a complete response.")[-1000:])
+        outer = accepted["envelope"]
+        structured = accepted["structured"]
+        models = list(accepted.get("actual_models") or list((outer.get("modelUsage") or {}).keys()))
+        serialization_repair = accepted.get("serialization_repair")
         audit = {
             "task_id": task_id,
             "started_at": started,
@@ -647,12 +843,18 @@ class GrokBridge:
             "attempts": attempts,
             "network": self.network_audit,
             "serialization_repair": serialization_repair or {"applied": False},
+            "cli_exit_code": last_rc,
+            "auxiliary_exit_sync_warning": next((row.get("auxiliary_warning") for row in reversed(attempts) if row.get("auxiliary_warning")), None),
+            "classification": "COMPLETED_WITH_AUXILIARY_EXIT_SYNC" if any(row.get("auxiliary_warning") for row in attempts) else "COMPLETED",
             **metadata,
+            "reasoning": effort,
+            "actual_reasoning_effort": effort,
+            "cli_reasoning_effort": effort,
         }
-        write_json(run_dir / "provider_raw_envelope.json", outer)
+        write_json(run_dir / "provider_raw_envelope.json", public_envelope(outer))
         write_json(run_dir / "provider_structured_output.json", structured)
         write_json(run_dir / "invocation.json", audit)
-        return {"structured_output": structured, "envelope": outer, "audit": audit}
+        return {"structured_output": structured, "envelope": public_envelope(outer), "audit": audit}
 
     def retry(self, **kwargs: Any) -> dict[str, Any]:
         return self.invoke(**kwargs)

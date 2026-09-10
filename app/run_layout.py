@@ -44,6 +44,8 @@ def finalize_run(run_id: str, result: dict[str, Any] | None = None) -> dict[str,
             "artifact_qa_report.json",
             "run_audit.json",
             "generation_status.json",
+            "qa_review_summary.json",
+            "last_valid_artifact.json",
         ],
         folders["log"]: ["artifact_build.stdout.log", "artifact_build.stderr.log"],
     }

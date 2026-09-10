@@ -20,6 +20,10 @@ logs/
 cache/
 temp/
 output/
+checkpoint/
+_blocked_artifact/
+last_valid_artifact/
+qa_review_summary.json
 runtime/python/
 runtime/tmp/
 runtime/*.log
@@ -51,3 +55,8 @@ Desktop.ini
 .vscode/
 *.swp
 tests/_reports/
+
+# Internal packaging / diagnose helpers — not part of the public product
+tools/assemble_release.py
+tools/mmf006e_r24_diagnose_runs.py
+tools/overlays/
