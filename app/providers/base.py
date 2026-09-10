@@ -10,9 +10,10 @@ from typing import Any
 class ProviderError(RuntimeError):
     error_code = "PROVIDER_RUNTIME_ERROR"
 
-    def __init__(self, message: str, *, error_code: str | None = None):
+    def __init__(self, message: str, *, error_code: str | None = None, retry_after: float | None = None):
         super().__init__(message)
         self.error_code = error_code or self.error_code
+        self.retry_after = retry_after
 
 
 class ProviderUnavailableError(ProviderError):

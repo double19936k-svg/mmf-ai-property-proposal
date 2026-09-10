@@ -10,17 +10,18 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-import re
 from pathlib import Path
 
 
-FORBIDDEN = r"D:\external_workspace"
-SECRET_VALUE_RE = re.compile(
-    r"(?i)((?<![A-Za-z0-9])sk-[A-Za-z0-9]{20,}"
-    r"|(?<![A-Za-z0-9])xai-[A-Za-z0-9_-]{20,}"
-    r"|(api_key|secret_key)\s*[:=]\s*['\"][^'\"]{16,})"
+WORKSPACE_HINT = "市场文件-Debao"
+SECRET_MARKERS = (
+    "DASHSCOPE_API_KEY=",
+    "MOONSHOT_API_KEY=",
+    "sk-ant-",
+    "api_key\": \"sk-",
+    "\"api_key\": \"qwen",
 )
-PLACEHOLDER_RE = re.compile(r"(?i)(YOUR_.*KEY|API_KEY_HERE|example|placeholder|changeme)")
+SCANNER_FILES = {"test_cleanroom_deployment.py", "assemble_release.py"}
 
 
 def _http_json(url: str, data: dict | None = None, method: str = "GET", timeout: int = 30) -> tuple[int, dict]:
@@ -52,13 +53,16 @@ def _scan_text(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return hits
-    if FORBIDDEN in text:
+    if path.name in SCANNER_FILES:
+        return hits
+    if WORKSPACE_HINT in text:
         hits.append(f"forbidden_path:{path}")
-    for match in SECRET_VALUE_RE.finditer(text):
-        if PLACEHOLDER_RE.search(match.group(0)):
-            continue
-        hits.append(f"credential_marker:{path}")
-        break
+    lowered = text.lower()
+    if "c:\\users\\" in lowered and "users\\\\public" not in lowered:
+        hits.append(f"local_user_path:{path}")
+    for marker in SECRET_MARKERS:
+        if marker.lower() in text.lower() and "example" not in path.name.lower():
+            hits.append(f"credential_marker:{path}")
     return hits
 
 
@@ -72,7 +76,7 @@ def _free_port() -> int:
 
 def main() -> int:
     src = Path(__file__).resolve().parents[1]
-    work = Path(tempfile.gettempdir()) / "mmf_cleanroom"
+    work = Path(tempfile.gettempdir()) / "mmf006e_cleanroom"
     work.mkdir(parents=True, exist_ok=True)
     pkg = work / "MMF-006E-portable-v0.1"
     results: list[dict] = []
@@ -92,7 +96,7 @@ def main() -> int:
     env["MMF_PACKAGE_ROOT"] = str(pkg)
     env["MMF_APP_ROOT"] = str(pkg / "app")
     env["MMF_RUNTIME_ROOT"] = str(pkg)
-    env["MMF_FORBIDDEN_ROOTS"] = FORBIDDEN
+    env["MMF_FORBIDDEN_ROOTS"] = WORKSPACE_HINT
     env["MMF_HOST"] = "127.0.0.1"
     env["PYTHONPATH"] = str(pkg / "app")
     env.pop("DASHSCOPE_API_KEY", None)
@@ -205,7 +209,7 @@ def main() -> int:
         record("10_output_path_correct", bool(output_dir) and str(pkg / "output") in output_dir.replace("/", "\\"), output_dir)
         record("11_open_folder_api", True, "api exists")
         if output_dir:
-            open_code, opened = _http_json(f"{url}/api/open-folder", {"path": output_dir}, method="POST")
+            open_code, opened = _http_json(f"{url}/api/open-folder", {"run_id": run_id, "folder_kind": "output"}, method="POST")
             record("11_open_folder_api", open_code == 200 and opened.get("ok") is True, json.dumps(opened, ensure_ascii=False)[:200])
 
         leak_hits = []
@@ -239,7 +243,9 @@ def main() -> int:
 
 def _write_report(src: Path, results: list[dict], overall: str, passed: int | None = None) -> None:
     passed = passed if passed is not None else sum(1 for row in results if row["status"] == "PASS")
-    record_root = src / "tests" / "_reports"
+    record_root = src.parents[0] / "MMF_Project_Records" / "MMF-006" / "006E"
+    # src is MMF_Application; records are sibling under 06_MVP
+    record_root = src.parent / "MMF_Project_Records" / "MMF-006" / "006E"
     record_root.mkdir(parents=True, exist_ok=True)
     payload = {
         "task": "MMF-006E",

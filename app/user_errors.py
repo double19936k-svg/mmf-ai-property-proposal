@@ -44,7 +44,7 @@ def classify(exc: BaseException | str, *, extra: str = "") -> dict[str, Any]:
         code = "authentication_required"
     elif any(token in message for token in ("grok", "bridge")) and any(token in message for token in ("unavailable", "not found", "未安装", "cli_not_found")):
         code = "grok_bridge_unavailable"
-    elif any(token in message for token in ("network", "timed out", "timeout", "connection", "urlerror", "unreachable")):
+    elif any(token in message for token in ("network", "timed out", "timeout", "connection", "urlerror", "unreachable", "网络", "连接失败")):
         code = "network_failed"
     elif any(token in message for token in ("not writable", "不可写", "access is denied", "permission denied", "errno 13")):
         if "output" in message or "输出" in message:

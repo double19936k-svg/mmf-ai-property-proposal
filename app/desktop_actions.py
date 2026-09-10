@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,42 @@ def open_path(path: str | Path, folder: bool = False) -> dict[str, Any]:
         raise FileNotFoundError("文件不存在")
     os.startfile(str(target))  # noqa: S606 - local desktop helper
     return {"ok": True, "path": str(target), "opened": True, "kind": "folder" if folder else "file"}
+
+
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+
+
+def open_run_folder(run_id: str, folder_kind: str = "output") -> dict[str, Any]:
+    """Open only a directory belonging to a known MMF run.
+
+    No browser-supplied filesystem path is accepted by this entry point.
+    """
+    value = str(run_id or "").strip()
+    kind = str(folder_kind or "output").strip().lower()
+    if not RUN_ID_PATTERN.fullmatch(value) or ".." in value:
+        raise PermissionError("无效的任务编号，已阻止打开目录。")
+    roots = paths.current()
+    run_dir = (roots.runs_dir / value).resolve()
+    if not _is_within(run_dir, roots.runs_dir) or not run_dir.is_dir():
+        raise FileNotFoundError("输出目录不存在或已被移动。")
+    candidates = {
+        "output": (roots.output_root / value).resolve(),
+        "run": run_dir,
+        "artifact": (run_dir / "artifact").resolve(),
+    }
+    if kind not in candidates:
+        raise PermissionError("不允许打开该目录类型。")
+    target = candidates[kind]
+    allowed_root = roots.output_root if kind == "output" else roots.runs_dir
+    if not _is_within(target, allowed_root):
+        raise PermissionError("目标目录不在MMF允许的输出范围内。")
+    if not target.is_dir():
+        raise FileNotFoundError("输出目录不存在或已被移动。")
+    try:
+        subprocess.Popen(["explorer.exe", str(target)], shell=False)
+    except OSError as exc:
+        raise OSError("无法启动Windows文件资源管理器，请复制路径后手动打开。") from exc
+    return {"ok": True, "run_id": value, "path": str(target), "opened": True, "kind": kind}
 
 
 def safe_open(path: str | Path, folder: bool = False) -> dict[str, Any]:

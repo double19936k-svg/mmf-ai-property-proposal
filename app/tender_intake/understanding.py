@@ -188,6 +188,8 @@ def engine_label(provider: Any) -> str:
         return "Grok"
     if "kimi" in blob:
         return "Kimi"
+    if "glm" in blob or "zhipu" in blob or "智谱" in display:
+        return "智谱GLM"
     if "mock" in blob:
         return "测试引擎"
     short = display.split("（")[0].strip()
@@ -208,6 +210,7 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
     write_json(status_path, status)
     all_items: list[dict[str, Any]] = []
     all_scoring: list[dict[str, Any]] = []
+    provider_error: Exception | None = None
     for chunk in chunks:
         chunk_dir = chunks_dir / chunk["chunk_id"]
         normalized_path = chunk_dir / "normalized.json"
@@ -264,21 +267,53 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
             status["message"] = ""
             status["updated_at"] = now_iso()
             write_json(status_path, status)
-        except TenderError:
-            raise
+        except TenderError as exc:
+            provider_error = exc
+            status.update({"failed_chunk": chunk["chunk_id"], "updated_at": now_iso(), "provider_error": str(exc)})
+            write_json(status_path, status)
+            break
         except Exception as exc:
-            status.update({"failed_chunk": chunk["chunk_id"], "pack_status": "understanding_failed", "updated_at": now_iso(), "error_code": "UNDERSTAND_PROVIDER_UNAVAILABLE", "error": str(exc)})
+            provider_error = exc
+            status.update({"failed_chunk": chunk["chunk_id"], "updated_at": now_iso(), "error_code": "UNDERSTAND_PROVIDER_UNAVAILABLE", "provider_error": str(exc)})
             write_json(chunk_dir / "status.json", {"chunk_id": chunk["chunk_id"], "status": "FAIL", "error_code": "UNDERSTAND_PROVIDER_UNAVAILABLE", "error": str(exc), "finished_at": now_iso()})
             write_json(status_path, status)
-            raise TenderError("UNDERSTAND_PROVIDER_UNAVAILABLE", f"需求识别未完成。本地文件已解析保留，请重试识别。", {"failed_chunk": chunk["chunk_id"]}) from exc
+            break
         finally:
             stop.set()
     # Local high-recall candidates remain the deterministic safety net. Provider
     # proposals may add interpretation, but cannot make a source-backed MUST or
     # repeated occurrence disappear from the authoritative Pack.
     all_items.extend(candidates_from_extraction(extraction))
+    if not all_items:
+        cause = provider_error or TenderError("UNDERSTAND_PROVIDER_UNAVAILABLE", "需求识别未完成。本地文件已解析保留，请重试识别。")
+        status.update({"pack_status": "understanding_failed", "stage": "A4_PROVIDER_UNDERSTANDING_FAILED", "error": str(cause), "updated_at": now_iso()})
+        write_json(status_path, status)
+        raise TenderError("UNDERSTAND_PROVIDER_UNAVAILABLE", str(cause), {"failed_chunk": status.get("failed_chunk")}) from (provider_error if isinstance(provider_error, Exception) else None)
     pack = build_requirement_pack(extraction, all_items, all_scoring)
     write_json(tender_dir / "requirement_pack.json", pack)
-    status.update({"chunks_completed": len(chunks), "failed_chunk": None, "pack_status": pack["status"], "stage": "A5_TODD_CONFIRMATION", "updated_at": now_iso()})
+    status.update({"chunks_completed": status.get("chunks_completed") or 0, "pack_status": pack["status"], "stage": "A5_TODD_CONFIRMATION", "updated_at": now_iso()})
+    if provider_error:
+        cause = str(getattr(provider_error, "__cause__", None) or provider_error)
+        status["recognition_outcome"] = "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK"
+        status["local_fallback_confirmation_required"] = True
+        status["local_fallback_confirmed"] = False
+        status["warning"] = f"AI需求识别未完成，当前仅展示本地解析结果。{cause}"
+        status["message"] = status["warning"]
+        status.pop("error", None)
+    else:
+        status["recognition_outcome"] = "AI_RECOGNITION_SUCCESS"
+        status["local_fallback_confirmation_required"] = False
+        status["local_fallback_confirmed"] = True
+        status.pop("warning", None)
+        status["message"] = "AI需求识别已完成。"
+    write_json(tender_dir / "provider_recognition_audit.json", {
+        "run_id": extraction.get("run_id"),
+        "recognition_outcome": status["recognition_outcome"],
+        "provider_error_type": type(provider_error).__name__ if provider_error else None,
+        "provider_error_code": getattr(provider_error, "error_code", None) if provider_error else None,
+        "local_fallback_used": bool(provider_error),
+        "local_fallback_confirmation_required": status["local_fallback_confirmation_required"],
+        "created_at": now_iso(),
+    })
     write_json(status_path, status)
     return {"pack": pack, "status": status}

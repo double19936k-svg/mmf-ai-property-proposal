@@ -14,7 +14,7 @@ if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
 import paths
-from desktop_actions import pick_folder, safe_open
+from desktop_actions import open_run_folder, pick_folder, safe_open
 from env_check import run_environment_check, user_facing_check
 from first_run import current_settings, save_settings, setup_payload
 from provider_view import public_status
@@ -29,28 +29,37 @@ from app_core import (  # noqa: E402
     MMFError,
     RUNS_DIR,
     SCENARIOS,
+    acknowledge_tender_local_fallback,
     confirm_tender_run,
     create_tender_run,
     delete_run,
     duration_seconds,
+    estimate_generation_runtime,
     generate_artifact,
     list_runs,
     load_run_recommendation,
     load_run_status,
     load_tender_run,
+    mark_tender_failed,
+    mark_tender_processing,
     now_iso,
     process_tender_run,
+    reconcile_tender_status,
     provider_manager,
     provider_status,
     recommend_knowledge,
     repair_artifact,
+    repair_local_artifact,
     save_todd_final,
     verify_assets,
     write_json,
 )
+from longform.reasoning import product_speed_catalog
+from providers.capability import resolve_profile
 from providers import ProviderError, ProviderUnavailableError
 from providers.openai_compatible import abort_run_http, bind_run, is_cancelled, unbind_run, GenerationCancelled
 from tender_intake import TenderError
+from workflow_timing import finish_workflow, workflow_audit_fields
 
 
 APP_CONFIG = json.loads((paths.CONFIG_DIR / "app.json").read_text(encoding="utf-8-sig"))
@@ -88,7 +97,8 @@ def log_exception(where: str, exc: BaseException) -> None:
     roots.logs_dir.mkdir(parents=True, exist_ok=True)
     text = f"{now_iso()} [{where}] {type(exc).__name__}: {sanitize(str(exc))}\n{traceback.format_exc()}\n"
     with LOG_LOCK:
-        (roots.logs_dir / "mmf_desktop.log").open("a", encoding="utf-8").write(text)
+        with (roots.logs_dir / "mmf_desktop.log").open("a", encoding="utf-8") as handle:
+            handle.write(text)
 
 
 def rebind_app_core() -> None:
@@ -167,7 +177,7 @@ def _generation_status_path(run_id: str) -> Path:
     return run_dir / "generation_status.json"
 
 
-def _run_generation_job(run_id: str, selected_positive_ids: list[str], clarification_answers: dict) -> None:
+def _run_generation_job(run_id: str, selected_positive_ids: list[str], clarification_answers: dict, speed_profile: str | None = None, max_parallelism: int | None = None, trust_submitted_selection: bool = False) -> None:
     import time
     status_path = _generation_status_path(run_id)
     started_at = now_iso()
@@ -187,12 +197,30 @@ def _run_generation_job(run_id: str, selected_positive_ids: list[str], clarifica
             if is_cancelled(run_id):
                 return
             elapsed = int(time.monotonic() - started)
+            phase = "GENERATING"
+            message = f"正在生成方案，已用时{elapsed // 60}分{elapsed % 60}秒。完整方案可能需要几分钟，请勿重复点击。"
+            phase_path = paths.current().runs_dir / run_id / "generation_phase.json"
+            checkpoint_path = paths.current().runs_dir / run_id / "checkpoint" / "state.json"
+            try:
+                if phase_path.is_file():
+                    phase_record = json.loads(phase_path.read_text(encoding="utf-8-sig"))
+                    phase = str(phase_record.get("phase") or phase)
+                    message = str(phase_record.get("message") or message)
+                elif checkpoint_path.is_file():
+                    checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8-sig"))
+                    phase = str(checkpoint.get("public_phase") or phase)
+                    if phase in {"AUTO_REPAIRING", "RECHECKING", "SECTION_QA"}:
+                        message = "正在检查并完善方案内容。"
+            except (OSError, json.JSONDecodeError, TypeError):
+                pass
             write_json(status_path, {
                 "run_id": run_id,
                 "status": "running",
                 "started_at": started_at,
                 "elapsed_seconds": elapsed,
-                "message": f"正在生成方案，已用时{elapsed // 60}分{elapsed % 60}秒。完整方案可能需要几分钟，请勿重复点击。",
+                "phase": phase,
+                "recoverable_qa": phase in {"SECTION_QA", "AUTO_REPAIRING", "RECHECKING"},
+                "message": message,
             })
 
     heartbeat = threading.Thread(target=_heartbeat, daemon=True)
@@ -210,20 +238,27 @@ def _run_generation_job(run_id: str, selected_positive_ids: list[str], clarifica
         if extra:
             payload.update(extra)
         write_json(status_path, payload)
-        audit_path = paths.current().runs_dir / run_id / "run_audit.json"
-        if audit_path.is_file():
-            try:
-                audit = json.loads(audit_path.read_text(encoding="utf-8-sig"))
-                audit["generation_started_at"] = started_at
-                audit["generation_finished_at"] = finished_at
-                audit["generation_elapsed_seconds"] = elapsed
-                write_json(audit_path, audit)
-            except (OSError, json.JSONDecodeError, TypeError):
-                pass
+        run_dir = paths.current().runs_dir / run_id
+        finish_workflow(run_dir, "completed" if status == "completed" else status)
+        audit_path = run_dir / "run_audit.json"
+        try:
+            audit = json.loads(audit_path.read_text(encoding="utf-8-sig")) if audit_path.is_file() else {
+                "run_id": run_id,
+                "status": "generation_completed" if status == "completed" else f"generation_{status}",
+                "partial": status != "completed",
+                "created_at": finished_at,
+            }
+            audit["generation_started_at"] = started_at
+            audit["generation_finished_at"] = finished_at
+            audit["generation_elapsed_seconds"] = elapsed
+            audit.update(workflow_audit_fields(run_dir))
+            write_json(audit_path, audit)
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
         return payload
 
     try:
-        result = generate_artifact(run_id, selected_positive_ids, clarification_answers)
+        result = generate_artifact(run_id, selected_positive_ids, clarification_answers, speed_profile=speed_profile, max_parallelism=max_parallelism, trust_submitted_selection=trust_submitted_selection)
         if is_cancelled(run_id):
             _finish_status("cancelled", {"error": "已停止生成"})
             return
@@ -286,10 +321,11 @@ def cancel_generation(run_id: str) -> dict:
         "elapsed_seconds": elapsed,
         "error": "已停止生成",
     })
-    return {"ok": True, "run_id": run_id, "status": "cancelled", "elapsed_seconds": elapsed, "message": "已停止生成"}
+    finish_workflow(paths.current().runs_dir / run_id, "cancelled")
+    return {"ok": True, "run_id": run_id, "status": "cancelled", "delivery_status": "USER_CANCELLED", "elapsed_seconds": elapsed, "message": "已停止生成。已生成的文件仍保留。"}
 
 
-def _start_generation_job(run_id: str, selected_positive_ids: list[str], clarification_answers: dict) -> dict:
+def _start_generation_job(run_id: str, selected_positive_ids: list[str], clarification_answers: dict, speed_profile: str | None = None, max_parallelism: int | None = None, trust_submitted_selection: bool = False) -> dict:
     current = _enrich_run(load_run_status(run_id))
     if current.get("run_status") == "generation_completed":
         return finalize_run(run_id, {"run_id": run_id, "status": "generation_completed", "download_url": current.get("download_url", "")})
@@ -299,7 +335,7 @@ def _start_generation_job(run_id: str, selected_positive_ids: list[str], clarifi
             return {"run_id": run_id, "status": "generation_in_progress", "started_at": current.get("started_at"), "provider_name": current.get("provider_name"), "message": "当前任务仍在生成。"}
         started_at = now_iso()
         write_json(_generation_status_path(run_id), {"run_id": run_id, "status": "running", "started_at": started_at})
-        worker = threading.Thread(target=_run_generation_job, args=(run_id, list(selected_positive_ids), dict(clarification_answers)), daemon=True)
+        worker = threading.Thread(target=_run_generation_job, args=(run_id, list(selected_positive_ids), dict(clarification_answers), speed_profile, max_parallelism, bool(trust_submitted_selection)), daemon=True)
         GENERATION_JOBS[run_id] = worker
         worker.start()
     return {"run_id": run_id, "status": "generation_started", "started_at": started_at, "provider_name": current.get("provider_name"), "message": "任务已转入后台生成。"}
@@ -358,9 +394,14 @@ class Handler(SimpleHTTPRequestHandler):
             raise MMFError("文件路径无效") from exc
         if not target.is_file():
             output = (paths.current().output_root / run_id / target.name).resolve()
-            if output.is_file():
-                target = output
-            else:
+            fallbacks = [
+                output,
+                paths.current().runs_dir / run_id / "last_valid_artifact" / target.name,
+                paths.current().runs_dir / run_id / "_blocked_artifact" / target.name,
+                paths.current().runs_dir / run_id / "artifact" / target.name,
+            ]
+            target = next((item.resolve() for item in fallbacks if item.is_file()), target)
+            if not target.is_file():
                 raise MMFError("文件不存在")
         data = target.read_bytes()
         self.send_response(200)
@@ -427,6 +468,8 @@ class Handler(SimpleHTTPRequestHandler):
                         "status": settings.get("image_provider_status") or "not_configured",
                         "message": "可在AI引擎设置中配置千问万相或Grok Imagine。未配置时不影响文字方案生成。",
                     },
+                    "speed_profiles": product_speed_catalog(),
+                    "default_speed_profile": "balanced",
                 })
                 return
             if path == "/api/providers/health":
@@ -442,6 +485,49 @@ class Handler(SimpleHTTPRequestHandler):
             if path.startswith("/api/providers/") and path.endswith("/config"):
                 name = path.split("/")[3]
                 self._json(provider_manager().public_config(name))
+                return
+            if path == "/api/generation/estimate":
+                query = urlparse(self.path).query
+                params = dict(part.split("=", 1) for part in query.split("&") if "=" in part)
+                provider = unquote(params.get("provider") or params.get("provider_name") or "")
+                mode = unquote(params.get("mode") or params.get("speed_profile") or "balanced")
+                stage = unquote(params.get("stage") or "draft")
+                cfg = {}
+                try:
+                    if provider:
+                        cfg = provider_manager().public_config(provider)
+                except Exception:
+                    cfg = {}
+                model = unquote(params.get("model") or "") or str(cfg.get("model") or "")
+                section_count = None
+                raw_count = unquote(params.get("section_count") or params.get("logical_section_count") or "")
+                if raw_count:
+                    try:
+                        section_count = int(raw_count)
+                    except (TypeError, ValueError):
+                        section_count = None
+                run_id = unquote(params.get("run_id") or "")
+                if section_count is None and run_id:
+                    plan_path = paths.current().runs_dir / run_id / "01_word_document_plan.json"
+                    if plan_path.is_file():
+                        try:
+                            outline = json.loads(plan_path.read_text(encoding="utf-8-sig")).get("outline") or []
+                            section_count = sum(len(chapter.get("sections") or []) for chapter in outline)
+                        except Exception:
+                            section_count = None
+                eta = estimate_generation_runtime(provider, mode, model, stage, section_count=section_count)
+                cap = resolve_profile(provider or "mock", cfg if isinstance(cfg, dict) else {}, speed_profile=mode, stage=stage)
+                effective = cap.get("effective_settings") or {}
+                self._json({
+                    "eta": eta,
+                    "speed_profiles": product_speed_catalog(),
+                    "effective_reasoning_label": effective.get("ui_reasoning_label"),
+                    "ui_thinking_enabled": bool(effective.get("ui_thinking_enabled")),
+                    "model": effective.get("model") or model,
+                    "recommended_parallelism": effective.get("recommended_parallelism"),
+                    "soft_latency_budget": effective.get("soft_latency_budget"),
+                    "hard_timeout": effective.get("hard_timeout"),
+                })
                 return
             if path == "/api/runs":
                 self._json({"runs": _safe_runs()})
@@ -464,7 +550,11 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if path.startswith("/api/tender/runs/"):
                 run_id = path.split("/")[4]
-                self._json(load_tender_run(run_id))
+                payload = load_tender_run(run_id)
+                alive = _tender_worker_alive(run_id)
+                payload["status"] = reconcile_tender_status(run_id, payload.get("status") or {}, worker_alive=alive)
+                payload["worker_alive"] = alive
+                self._json(payload)
                 return
             if path.startswith("/files/"):
                 parts = path.split("/")
@@ -496,6 +586,10 @@ class Handler(SimpleHTTPRequestHandler):
                 data = self._read_json()
                 self._json(_start_tender_job(data["run_id"], data.get("provider_name", "")))
                 return
+            if self.path == "/api/tender/accept-local-fallback":
+                data = self._read_json()
+                self._json(acknowledge_tender_local_fallback(data["run_id"]))
+                return
             if self.path == "/api/tender/confirm":
                 data = self._read_json()
                 self._json(confirm_tender_run(data["run_id"], data.get("decisions", {}), data.get("brief_options", {})))
@@ -508,12 +602,36 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/generate":
                 data = self._read_json()
-                self._json(_start_generation_job(data["run_id"], data.get("selected_positive_ids", []), data.get("clarification_answers", {})), 202)
+                self._json(_start_generation_job(
+                    data["run_id"],
+                    data.get("selected_positive_ids", []),
+                    data.get("clarification_answers", {}),
+                    data.get("speed_profile"),
+                    data.get("max_parallelism"),
+                    bool(data.get("knowledge_optional") or data.get("trust_submitted_selection")),
+                ), 202)
                 return
             if self.path == "/api/repair":
                 data = self._read_json()
-                result = repair_artifact(data["run_id"])
-                self._json(finalize_run(data["run_id"], result))
+                result = finalize_run(data["run_id"], repair_artifact(data["run_id"]))
+                write_json(_generation_status_path(data["run_id"]), {
+                    "run_id": data["run_id"],
+                    "status": "completed" if result.get("status") == "generation_completed" else result.get("status", "completed"),
+                    "finished_at": now_iso(),
+                    "result": result,
+                })
+                self._json(result)
+                return
+            if self.path == "/api/repair-local":
+                data = self._read_json()
+                result = finalize_run(data["run_id"], repair_local_artifact(data["run_id"]))
+                write_json(_generation_status_path(data["run_id"]), {
+                    "run_id": data["run_id"],
+                    "status": "completed",
+                    "finished_at": now_iso(),
+                    "result": result,
+                })
+                self._json(result)
                 return
             if self.path.startswith("/api/runs/") and self.path.endswith("/delete"):
                 run_id = unquote(self.path.split("/")[3])
@@ -556,7 +674,10 @@ class Handler(SimpleHTTPRequestHandler):
                 return
             if self.path == "/api/open-folder":
                 data = self._read_json()
-                self._json(safe_open(data.get("path", ""), folder=True))
+                try:
+                    self._json(open_run_folder(data.get("run_id", ""), data.get("folder_kind", "output")))
+                except (FileNotFoundError, PermissionError, OSError) as exc:
+                    self._json({"ok": False, "error": str(exc), "error_code": "open_folder_failed"}, 400)
                 return
             if self.path == "/api/pick-folder":
                 data = self._read_json()
@@ -636,10 +757,21 @@ class Handler(SimpleHTTPRequestHandler):
         self._json({"saved": True, "path": str(path)})
 
 
+def _tender_worker_alive(run_id: str) -> bool:
+    with TENDER_JOBS_LOCK:
+        worker = TENDER_JOBS.get(run_id)
+        return bool(worker and worker.is_alive())
+
+
 def _run_tender_job(run_id: str, provider_name: str) -> None:
     bind_run(run_id)
     try:
         process_tender_run(run_id, provider_name)
+    except Exception as exc:
+        if is_cancelled(run_id) or "已停止" in str(exc):
+            return
+        log_exception(f"tender:{run_id}", exc)
+        mark_tender_failed(run_id, exc)
     finally:
         unbind_run(run_id)
         with TENDER_JOBS_LOCK:
@@ -651,6 +783,7 @@ def _start_tender_job(run_id: str, provider_name: str) -> dict:
         existing = TENDER_JOBS.get(run_id)
         if existing and existing.is_alive():
             return {"run_id": run_id, "status": "processing"}
+        mark_tender_processing(run_id, provider_name)
         worker = threading.Thread(target=_run_tender_job, args=(run_id, provider_name), daemon=True)
         TENDER_JOBS[run_id] = worker
         worker.start()

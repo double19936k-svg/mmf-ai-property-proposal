@@ -18,13 +18,14 @@
     .knowledge{border:1px solid var(--line);border-radius:9px;padding:16px;margin:10px 0;background:#fff}.knowledge label{display:flex;gap:12px;align-items:flex-start}.knowledge input{width:auto;margin-top:4px}.knowledge strong{display:block;color:var(--navy);margin-bottom:5px}.knowledge p{margin:5px 0;color:var(--muted);line-height:1.65;font-size:14px}.guardrail{border-left:4px solid #d3a340;background:#fffaf0}.missing{border-left:4px solid var(--teal);background:#f4fbfa}
     .result{padding:22px;background:#f1f8ff;border:1px solid #bdd8ee;border-radius:9px}.download{display:inline-block;background:var(--teal);color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:700;margin:10px 0}
     .run{display:grid;grid-template-columns:1fr auto;gap:12px;padding:15px 0;border-bottom:1px solid var(--line)}.run:last-child{border:0}.run-title{font-weight:700;color:var(--navy)}.run-meta{font-size:13px;color:var(--muted);margin-top:5px}.run a{color:var(--blue);text-decoration:none;font-weight:700}.run-action{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:220px}.run-delete{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.run-status{color:var(--muted);font-size:14px}
-    .notice{padding:12px 14px;border-radius:7px;margin:14px 0;background:#eef7f5;color:#245e59}.error{background:#fff1f1;color:#8d2929}.loading{position:fixed;inset:0;background:rgba(18,33,50,.55);display:flex;align-items:center;justify-content:center;z-index:20}.loading>div{background:#fff;border-radius:10px;padding:24px 30px;color:var(--navy);font-weight:700;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+    .notice{padding:12px 14px;border-radius:7px;margin:14px 0;background:#eef7f5;color:#245e59}.notice.ok{background:#e8f6ee;color:#1f6b3a}.notice.review{background:#fff4e5;color:#9a4e00;border:1px solid #e0a24a}.error{background:#fff1f1;color:#8d2929}.issue-list{margin:10px 0 0;padding-left:18px;color:var(--ink);font-size:14px;line-height:1.65}.loading{position:fixed;inset:0;background:rgba(18,33,50,.55);display:flex;align-items:center;justify-content:center;z-index:20}.loading>div{background:#fff;border-radius:10px;padding:24px 30px;color:var(--navy);font-weight:700;box-shadow:0 8px 32px rgba(0,0,0,.2)}
     .provider-note{font-size:13px;color:var(--muted);line-height:1.55}.provider-note.ok{color:#24655f}.provider-note.bad{color:#943838}.test-banner{padding:12px 16px;border:2px solid #b36a00;background:#fff4df;color:#7a4300;border-radius:8px;font-weight:700;margin-bottom:16px}
     .provider-card{border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0}.provider-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.provider-state{font-size:13px;padding:5px 9px;background:var(--pale);border-radius:14px}.provider-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}.warning{background:#fff8e6;color:#7a5100}.credential-hint{font-size:12px;color:var(--muted);margin-top:5px}
     .path-row{display:grid;grid-template-columns:140px 1fr auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}.path-row b{color:var(--navy)}.path-row span{word-break:break-all;color:var(--muted)}
     .path-pick{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center}
     .env-item{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}.ok-dot{color:#24655f;font-weight:700}.bad-dot{color:#943838;font-weight:700}
     .tender-stage{display:flex;gap:8px;margin:16px 0 22px}.tender-stage span{flex:1;padding:10px;background:var(--pale);border-radius:7px;color:var(--muted);font-size:13px}.tender-stage span.on{background:#e7f1fa;color:var(--navy);font-weight:700}.drawer{border:1px solid var(--line);border-radius:10px;padding:18px;margin:14px 0}.req-card{border-top:1px solid var(--line);padding:14px 0}.req-title{font-weight:700;line-height:1.6}.req-meta{font-size:12px;color:var(--muted);margin:5px 0}.choice-row{display:grid;grid-template-columns:190px 1fr;gap:10px;margin-top:9px}.stage-result{padding:14px;border-radius:8px;background:#f4f8fb;margin:12px 0;line-height:1.7}
+    .mode-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.mode-card{border:1px solid var(--line);border-radius:9px;padding:12px;display:flex;gap:8px;align-items:flex-start;cursor:pointer;font-weight:700}.mode-card input{width:auto;margin-top:3px}.mode-card.recommended{border-color:var(--blue);background:#f3f8fd}.adv{margin-top:10px}.adv summary{cursor:pointer;color:var(--navy);font-weight:700}
     @media(max-width:720px){.grid{grid-template-columns:1fr}.full{grid-column:auto}.steps{flex-direction:column}.shell{padding:16px 12px}.panel{padding:18px}header{padding:22px}.run,.path-row{grid-template-columns:1fr}}
   </style>
 </head>
@@ -32,7 +33,7 @@
 <div class="shell">
   <header>
     <h1>物业方案生成器</h1>
-    <p>MMF Desktop / Local 0.1.0-alpha　仅本机使用　初始可部署版，非正式商用版本</p>
+    <p>MMF Desktop / Local 0.1.1-alpha　仅本机使用　MMF-006E-R2 调度优化版，非正式商用版本</p>
   </header>
   <nav>
     <button class="tab" data-view="setup">首次配置</button>
@@ -51,7 +52,7 @@
         <div class="field full"><label>输出目录</label><div class="path-pick"><input name="output_root" id="setup-output"><button class="secondary pick-folder" type="button" data-target="setup-output" data-title="选择输出目录">选择文件夹</button></div>
           <p class="hint">Word / PPT 成品会保存到这里。程序内部的工作文件和日志会自动管理，无需单独设置。</p>
         </div>
-        <div class="field"><label>默认AI引擎</label><select name="default_provider" id="setup-provider"><option value="qwen_modelstudio">千问</option><option value="kimi_moonshot">Kimi</option><option value="grok_build">本机Grok Bridge（可选）</option><option value="mock">Mock测试</option></select></div>
+        <div class="field"><label>默认AI引擎</label><select name="default_provider" id="setup-provider"><option value="qwen_modelstudio">千问</option><option value="kimi_moonshot">Kimi</option><option value="glm_zhipu">智谱 GLM</option><option value="grok_build">本机Grok Bridge（可选）</option><option value="mock">Mock测试</option></select></div>
         <div class="field"><label>默认输出</label><select name="default_medium" id="setup-medium"><option value="WORD">WORD</option><option value="PPT">PPT</option></select></div>
         <div class="field full"><label><input type="checkbox" name="enable_grok_bridge" id="setup-grok" style="width:auto"> 启用本机Grok Bridge（可选，未安装Grok也可使用千问）</label></div>
         <div class="field full"><label><input type="checkbox" id="setup-image" style="width:auto" checked> 启用AI图片服务</label>
@@ -100,6 +101,21 @@
           <div class="field"><label>项目/业态类型 <span>*</span></label><input name="project_type" required></div>
           <div class="field"><label>方案场景 <span>*</span></label><select name="scenario" id="scenario" required></select><p class="hint">完整物业服务方案会按全套服务内容生成，不只输出单个模块。</p></div>
           <div class="field"><label>输出媒介 <span>*</span></label><select name="medium" id="medium" required><option value="">请选择</option><option value="WORD">WORD</option><option value="PPT">PPT</option></select></div>
+          <div class="field full"><label>生成模式</label>
+            <div class="mode-row">
+              <label class="mode-card"><input type="radio" name="speed_profile" value="fast"> 快速<div class="hint" style="margin:4px 0 0;font-weight:400">内部初稿，优先时间与成本</div></label>
+              <label class="mode-card recommended"><input type="radio" name="speed_profile" value="balanced" checked> 均衡（推荐）<div class="hint" style="margin:4px 0 0;font-weight:400">质量、时间、成本平衡</div></label>
+              <label class="mode-card"><input type="radio" name="speed_profile" value="deep"> 深度<div class="hint" style="margin:4px 0 0;font-weight:400">复杂/高风险方案</div></label>
+            </div>
+            <p class="hint" id="eta-hint">预计正式生成阶段耗时：暂无足够历史数据</p>
+            <details class="adv"><summary>高级设置</summary>
+              <div class="grid" style="margin-top:10px">
+                <div class="field"><label>并发数</label><select name="max_parallelism" id="max-parallelism"><option value="1">1</option><option value="2">2</option><option value="3" selected>3</option></select></div>
+                <div class="field"><label>当前引擎实际推理</label><input id="effective-reasoning" readonly value="将按所选模式自动映射"></div>
+              </div>
+              <p class="hint">普通用户无需配置 xhigh / thinking budget。未启用思维链的模型不会显示为“深度推理已开启”。</p>
+            </details>
+          </div>
           <div class="field full"><label>方案需求描述 <span>*</span></label><textarea name="requirements" required></textarea></div>
           <div class="field"><label>项目所在地</label><input name="location"></div>
           <div class="field"><label>建筑面积/管理面积</label><input name="area"></div>
@@ -112,6 +128,15 @@
         <h3>推荐知识</h3><div id="positive-list"></div>
         <h3>本次自动启用的风险控制</h3><div id="guardrail-list"></div>
         <h3>待澄清事项</h3><div id="missing-list"></div>
+        <div class="field full" id="knowledge-mode-box">
+          <label>生成模式</label>
+          <div class="mode-row">
+            <label class="mode-card"><input type="radio" name="gen_speed_profile" value="fast"> 快速</label>
+            <label class="mode-card recommended"><input type="radio" name="gen_speed_profile" value="balanced" checked> 均衡（推荐）</label>
+            <label class="mode-card"><input type="radio" name="gen_speed_profile" value="deep"> 深度</label>
+          </div>
+          <p class="hint" id="eta-hint-gen">预计正式生成阶段耗时：暂无足够历史数据</p>
+        </div>
         <div class="actions"><button class="secondary" id="back-brief">返回修改Brief</button><button class="primary" id="generate">生成正式初稿</button></div>
       </section>
       <section id="result-step" class="hidden">
@@ -120,6 +145,7 @@
           <div id="result-summary"></div>
           <div id="result-paths"></div>
           <a id="download" class="download hidden" href="#">下载正式初稿</a>
+          <button class="secondary hidden" id="repair-local" type="button">再次尝试自动修复</button>
         </div>
         <div class="actions"><button class="danger hidden" id="stop-generation" type="button">停止生成</button><button class="primary" id="new-another">再建一个方案</button></div>
       </section>
@@ -147,9 +173,36 @@
 </div>
 <div id="loading" class="loading hidden"><div id="loading-text">正在处理…</div></div>
 <script>
-const state={runId:null,recommendation:null,result:null,providers:[],tenderRunId:null,tenderPack:null,tenderProvider:null,firstRun:false,genStarted:null,genTimer:null,genPoll:null,tenderPoll:null};
+const state={runId:null,recommendation:null,result:null,providers:[],tenderRunId:null,tenderPack:null,tenderProvider:null,tenderRecognitionStatus:null,firstRun:false,genStarted:null,genProcessingSeconds:0,genTimerSyncedAt:null,genTimer:null,genPoll:null,tenderPoll:null,speedProfile:'balanced'};
+function currentSpeed(event){
+  if(event&&event.target&&['speed_profile','gen_speed_profile','seed_speed_profile'].includes(event.target.name)) return event.target.value;
+  const visible=[...document.querySelectorAll('input[name="gen_speed_profile"],input[name="speed_profile"],input[name="seed_speed_profile"]')].find(el=>el.checked&&el.offsetParent!==null);
+  if(visible) return visible.value;
+  const picked=document.querySelector('input[name="gen_speed_profile"]:checked')||document.querySelector('input[name="speed_profile"]:checked')||document.querySelector('input[name="seed_speed_profile"]:checked');
+  return (picked&&picked.value)||state.speedProfile||'balanced'
+}
+function setSpeed(value){state.speedProfile=value||'balanced';try{sessionStorage.setItem('mmf_speed_profile',state.speedProfile)}catch(_){}
+  qsa('input[name="speed_profile"],input[name="gen_speed_profile"],input[name="seed_speed_profile"]').forEach(el=>{el.checked=el.value===state.speedProfile});
+}
+async function refreshEta(event){
+  const provider=qs('#provider')?.value||qs('#tender-provider')?.value||'';
+  const mode=currentSpeed(event);
+  setSpeed(mode);
+  if(!provider){['#eta-hint','#eta-hint-gen'].forEach(id=>{if(qs(id)) qs(id).textContent='预计正式生成阶段耗时：暂无足够历史数据'});return}
+  try{
+    const data=await api(`/api/generation/estimate?provider=${encodeURIComponent(provider)}&speed_profile=${encodeURIComponent(mode)}`);
+    const eta=data.eta||{};
+    const text=eta.status==='range'?`预计正式生成阶段耗时：${eta.display}`:(eta.assumption_display?`预计正式生成阶段耗时：暂无足够历史数据（${eta.assumption_display}）`:'预计正式生成阶段耗时：暂无足够历史数据');
+    ['#eta-hint','#eta-hint-gen'].forEach(id=>{if(qs(id)) qs(id).textContent=text});
+    if(qs('#effective-reasoning')){
+      qs('#effective-reasoning').value=data.ui_thinking_enabled?data.effective_reasoning_label: (data.effective_reasoning_label||'当前模型未启用思维链');
+    }
+  }catch(_){['#eta-hint','#eta-hint-gen'].forEach(id=>{if(qs(id)) qs(id).textContent='预计正式生成阶段耗时：暂无足够历史数据'})}
+}
 function saveTenderSession(){try{sessionStorage.setItem('mmf_tender',JSON.stringify({runId:state.tenderRunId,provider:state.tenderProvider}))}catch(_){}}
 function loadTenderSession(){try{return JSON.parse(sessionStorage.getItem('mmf_tender')||'null')}catch(_){return null}}
+function saveGenSession(){try{if(state.runId)sessionStorage.setItem('mmf_gen',JSON.stringify({runId:state.runId}))}catch(_){}}
+function loadGenSession(){try{return JSON.parse(sessionStorage.getItem('mmf_gen')||'null')}catch(_){return null}}
 const qs=s=>document.querySelector(s), qsa=s=>[...document.querySelectorAll(s)];
 function showLoading(text){qs('#loading-text').textContent=text;qs('#loading').classList.remove('hidden')}
 function hideLoading(){qs('#loading').classList.add('hidden')}
@@ -177,7 +230,7 @@ const viewNames=['setup','tender','new','settings','history'];
 function openView(name){qsa('.tab').forEach(x=>x.classList.toggle('active',x.dataset.view===name));viewNames.forEach(v=>qs(`#view-${v}`).classList.toggle('hidden',v!==name));if(name==='history')refreshRuns();if(name==='settings')renderProviderSettings();if(name==='setup')loadSetup()}
 qsa('.tab').forEach(btn=>btn.onclick=()=>openView(btn.dataset.view));
 
-function engineLabel(name){const p=(state.providers||[]).find(x=>x.provider_name===name);const raw=((p&&p.display_name)||name||'');if(/qwen|千问/i.test(raw+String(name||'')))return '千问';if(/grok/i.test(raw+String(name||'')))return 'Grok';if(/kimi/i.test(raw+String(name||'')))return 'Kimi';if(/mock/i.test(raw+String(name||'')))return '测试引擎';return (String(raw).split('（')[0]||'当前引擎').trim()}
+function engineLabel(name){const p=(state.providers||[]).find(x=>x.provider_name===name);const raw=((p&&p.display_name)||name||'');if(/qwen|千问/i.test(raw+String(name||'')))return '千问';if(/grok/i.test(raw+String(name||'')))return 'Grok';if(/kimi/i.test(raw+String(name||'')))return 'Kimi';if(/glm|zhipu|智谱/i.test(raw+String(name||'')))return '智谱GLM';if(/mock/i.test(raw+String(name||'')))return '测试引擎';return (String(raw).split('（')[0]||'当前引擎').trim()}
 function providerOption(p){const disabled=!p.selectable;return `<option value="${p.provider_name}" ${disabled?'disabled':''}>${escapeHtml(p.display_name)}（${escapeHtml(p.user_status_label||p.user_status)}）</option>`}
 function renderProviderSelect(providers,defaultName){
   const textProviders=providers.filter(p=>p.capability!=='image');
@@ -189,27 +242,66 @@ function renderProviderSelect(providers,defaultName){
   updateProviderNote();
 }
 function updateProviderNote(){const p=state.providers.find(x=>x.provider_name===qs('#provider').value);if(!p)return;qs('#provider-note').className=`provider-note ${p.user_status==='connected'?'ok':'bad'}`;qs('#provider-note').textContent=`${p.display_name}｜${p.user_status_label}｜${p.user_message||p.message||''}`;qs('#test-banner').classList.toggle('hidden',!p.test_mode)}
-qs('#provider').addEventListener('change',updateProviderNote);
+qs('#provider').addEventListener('change',()=>{updateProviderNote();refreshEta()});
+document.addEventListener('change',e=>{if(e.target&&['speed_profile','gen_speed_profile','seed_speed_profile'].includes(e.target.name))refreshEta(e)});
 
 async function copyPath(path){try{await navigator.clipboard.writeText(path);return '已复制'}catch(_){return '浏览器未允许复制，请手动选择'}}
-async function openItem(path,folder){try{await api(folder?'/api/open-folder':'/api/open-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})})}catch(err){alert(err.message)}}
+async function openItem(value,folder,button){
+  const original=button&&button.textContent;
+  try{
+    if(button){button.disabled=true;button.textContent='正在打开…'}
+    await api(folder?'/api/open-folder':'/api/open-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(folder?{run_id:value,folder_kind:'output'}:{path:value})});
+    if(button)button.textContent='已打开';
+  }catch(err){
+    if(button)button.textContent='打开失败';
+    alert(err.message||'无法打开文件夹');
+  }finally{
+    if(button)setTimeout(()=>{button.disabled=false;button.textContent=original||'打开文件夹'},1400);
+  }
+}
 function pathBlock(data){
   const path=data.output_dir;
   if(!path)return '';
-  return `<div class="path-row"><b>输出目录</b><span>${escapeHtml(path)}</span><span><button class="secondary" type="button" data-copy="${escapeHtml(path)}">复制路径</button> <button class="secondary" type="button" data-open="${escapeHtml(path)}" data-folder="1">打开文件夹</button></span></div>`;
+  return `<div class="path-row"><b>输出目录</b><span>${escapeHtml(path)}</span><span><button class="secondary" type="button" data-copy="${escapeHtml(path)}">复制路径</button> <button class="secondary" type="button" data-open-run="${escapeHtml(data.run_id||'')}" data-folder="1">打开文件夹</button></span></div>`;
 }
 function bindPathButtons(root){
   root.querySelectorAll('[data-copy]').forEach(btn=>btn.onclick=async()=>{btn.textContent=await copyPath(btn.dataset.copy);setTimeout(()=>btn.textContent='复制路径',1200)});
-  root.querySelectorAll('[data-open]').forEach(btn=>btn.onclick=()=>openItem(btn.dataset.open,btn.dataset.folder==='1'));
+  root.querySelectorAll('[data-open]').forEach(btn=>btn.onclick=()=>openItem(btn.dataset.open,false,btn));
+  root.querySelectorAll('[data-open-run]').forEach(btn=>btn.onclick=()=>openItem(btn.dataset.openRun,true,btn));
 }
 
+function knowledgeHint(data){
+  const recs=(data&&data.recommended_positive)||[];
+  const checked=qsa('.positive-check:checked').length;
+  const status=data&&data.knowledge_status;
+  if(status==='PROVIDER_FAILED') return data.knowledge_warning?`知识推荐未完成：${data.knowledge_warning} 可继续基于项目资料与确认需求生成。`:'知识推荐未完成。可继续基于项目资料与确认需求生成。';
+  if(!recs.length||checked===0) return '本次未使用推荐知识，将仅基于项目资料与确认需求生成。';
+  return '';
+}
+function renderKnowledgeHint(data){
+  const text=knowledgeHint(data||state.recommendation||{});
+  let el=qs('#knowledge-optional-hint');
+  if(!el){el=document.createElement('p');el.id='knowledge-optional-hint';el.className='hint';qs('#positive-list').after(el)}
+  el.textContent=text;el.classList.toggle('hidden',!text);
+}
 function renderRecommendation(data){
   state.runId=data.run_id;state.recommendation=data;
+  const recs=data.recommended_positive||[];
+  const auto=new Set(data.auto_selected_positive_ids||[]);
   const conditional=new Map((data.conditional_confirmations||[]).map(x=>[x.ku_id,x]));
-  const shown=(data.recommended_positive||[]).filter(x=>(data.auto_selected_positive_ids||[]).includes(x.ku_id)||conditional.has(x.ku_id));
-  qs('#positive-list').innerHTML=shown.length?shown.map((x,i)=>{const c=conditional.get(x.ku_id);return c?`<div class="knowledge missing"><label><input type="checkbox" class="positive-check" value="${x.ku_id}"><span><strong>${escapeHtml(c.question)}</strong><p>勾选后加入；不勾选则本次不使用。</p></span></label></div>`:`<div class="knowledge"><strong>${escapeHtml(x.knowledge_name||('推荐方法 '+(i+1)))}</strong><p>${escapeHtml(x.summary||'')}</p></div>`}).join(''):'<p class="hint">本次没有需要逐条确认的知识项。</p>';
-  qs('#guardrail-list').innerHTML=(data.applicable_guardrails||[]).length?`<div class="knowledge guardrail"><strong>已自动启用风险控制</strong><p>用于防止把历史项目数字写进正文。</p></div>`:'<p class="hint">本次未匹配额外风险控制。</p>';
+  const failed=data.knowledge_status==='PROVIDER_FAILED';
+  const warning=failed?`<div class="notice error"><strong>知识推荐未完成</strong><p>${escapeHtml(data.knowledge_warning||'知识引擎未能返回推荐结果。可继续基于项目资料与确认需求生成。')}</p></div>`:'';
+  qs('#positive-list').innerHTML=warning+(recs.length?recs.map((x,i)=>{
+    const c=conditional.get(x.ku_id);
+    const checked=c?c.default!=='exclude':(auto.has(x.ku_id)||true);
+    const title=c?c.question:(x.knowledge_name||('推荐方法 '+(i+1)));
+    const help=c?'勾选后加入；不勾选则本次不使用。':(x.summary||'可取消后仍继续生成。');
+    return `<div class="knowledge"><label><input type="checkbox" class="positive-check" value="${x.ku_id}" ${checked?'checked':''}><span><strong>${escapeHtml(title)}</strong><p>${escapeHtml(help)}</p></span></label></div>`;
+  }).join(''):'<p class="hint">本次没有需要逐条确认的知识项。</p>');
+  qs('#guardrail-list').innerHTML=(data.applicable_guardrails||[]).length?`<div class="knowledge guardrail"><strong>已自动启用风险控制</strong><p>用于防止把历史项目数字写进正文。与是否使用推荐知识无关。</p></div>`:'<p class="hint">本次未匹配额外风险控制。</p>';
   qs('#missing-list').innerHTML=(data.missing_information||[]).length?data.missing_information.map(x=>`<div class="knowledge missing"><label>${escapeHtml(x)}</label><textarea class="compact clarification" data-question="${encodeURIComponent(x)}"></textarea></div>`).join(''):'<p class="hint">当前没有额外澄清项。</p>';
+  qsa('.positive-check').forEach(box=>box.addEventListener('change',()=>renderKnowledgeHint(data)));
+  renderKnowledgeHint(data);
   setStep(2);
 }
 function stopGenerationWatch(){
@@ -218,37 +310,72 @@ function stopGenerationWatch(){
 }
 function updateGenerationClock(){
   const el=qs('#gen-progress-text');
-  if(!el||!state.genStarted) return;
-  const elapsed=Math.max(0,Math.floor((Date.now()-state.genStarted)/1000));
+  if(!el) return;
+  const liveDelta=state.genTimerSyncedAt?Math.max(0,Math.floor((Date.now()-state.genTimerSyncedAt)/1000)):0;
+  const elapsed=Math.max(0,Math.floor(Number(state.genProcessingSeconds||0)+liveDelta));
   const label=engineLabel(state.tenderProvider||qs('#provider')?.value);
-  el.textContent=`正在调用${label}生成方案，已用时${fmtWait(elapsed)}。请在本页等待，无需刷新。`;
+  el.textContent=state.genProgressMessage?`${state.genProgressMessage} 已用时${fmtWait(elapsed)}。`:`正在调用${label}生成方案，已用时${fmtWait(elapsed)}。请在本页等待，无需刷新。`;
 }
 function setStopVisible(show){qs('#stop-generation').classList.toggle('hidden',!show)}
+function reviewIssues(row){
+  const issues=((row.qa_review_summary||{}).issues)||row.leftover_warnings||[];
+  return issues.map(item=>({
+    label:item.public_label||item.reason||item.remaining_problem||'建议人工复核的内容',
+    action:item.recommended_manual_action||'',
+    excerpt:item.excerpt||item.text||''
+  }));
+}
 function renderGenerationResult(data){
   stopGenerationWatch();
   setStopVisible(false);
-  state.result=data;
+  const row=data&&data.result&&typeof data.result==='object'?{...data.result,...data}:data;
+  if(row&&row.run_id){state.runId=row.run_id;saveGenSession()}
+  state.result=row;
   openView('new');
-  if(data.status==='compliance_blocked'){
-    qs('#result-summary').innerHTML=`<div class="notice error"><strong>知识纪律检查未通过，尚未生成可下载文件。</strong><p>${escapeHtml(data.message||'')}</p><button class="primary" id="repair-generation" type="button">修正并重新生成</button></div>`;
-    qs('#download').classList.add('hidden');qs('#result-paths').innerHTML='';setStep(3);qs('#repair-generation').onclick=repairGeneration;return;
+  const delivery=row.delivery_status||((row.status==='technical_failed'||row.status==='compliance_blocked')&&!row.artifact_available&&!row.download_url?'TECHNICAL_FAILED':'');
+  const elapsed=row.total_processing_seconds!=null?`总处理耗时${fmtWait(row.total_processing_seconds)}。`:(row.elapsed_seconds>0?`${engineLabel(row.provider_name||state.tenderProvider||qs('#provider')?.value)}生成阶段用时${fmtWait(row.elapsed_seconds)}。`:'' );
+  const issues=reviewIssues(row);
+  const count=Number(row.review_count||issues.length||0);
+  const msg=row.public_message||row.message||'';
+  const canDownload=!!(row.artifact_available||row.download_url||row.word_path);
+  const repairBtn=qs('#repair-local');
+  if(repairBtn)repairBtn.classList.add('hidden');
+  if(delivery==='TECHNICAL_FAILED'||((row.status==='technical_failed'||row.status==='compliance_blocked')&&!canDownload)){
+    qs('#result-summary').innerHTML=`<div class="notice error"><strong>方案未能形成可打开的文件</strong><p>${escapeHtml(msg||'请检查生成过程后重试。')}</p></div>${elapsed?`<p class="hint">${escapeHtml(elapsed)}</p>`:''}`;
+    qs('#download').classList.add('hidden');qs('#result-paths').innerHTML='';setStep(3);return;
   }
-  const elapsed=data.elapsed_seconds>0?`${engineLabel(data.provider_name||state.tenderProvider||qs('#provider')?.value)}用时${fmtWait(data.elapsed_seconds)}。`:'';
-  qs('#result-summary').innerHTML=`<p><strong>${data.test_mode?'测试模式｜':''}${escapeHtml(data.medium||'')} 初稿已经生成。</strong></p>${elapsed?`<p class="hint">${escapeHtml(elapsed)}</p>`:''}`;
-  qs('#result-paths').innerHTML=pathBlock(data);
+  let box='ok';
+  let title=msg||'方案已生成。';
+  let downloadText='下载正式初稿';
+  if(delivery==='COMPLETED_WITH_WARNINGS'){
+    box='warning';
+    title=msg||'方案已生成，发现少量建议复核内容。';
+  }else if(delivery==='NEEDS_REVIEW'){
+    box='review';
+    title=msg||`方案已生成，但有${count}处内容建议人工复核。`;
+    downloadText='下载待复核版本';
+    if(repairBtn)repairBtn.classList.remove('hidden');
+  }
+  const list=issues.length?`<p><strong>查看问题</strong></p><ul class="issue-list">${issues.map(item=>`<li>${escapeHtml(item.label)}${item.excerpt?`：${escapeHtml(String(item.excerpt).slice(0,80))}`:''}</li>`).join('')}</ul>`:'';
+  qs('#result-summary').innerHTML=`<div class="notice ${box}"><strong>${escapeHtml(row.test_mode?'测试模式｜':'')}${escapeHtml(title)}</strong>${list}</div>${elapsed?`<p class="hint">${escapeHtml(elapsed)}</p>`:''}`;
+  qs('#result-paths').innerHTML=pathBlock(row);
   bindPathButtons(qs('#result-paths'));
-  if(data.download_url){qs('#download').classList.remove('hidden');qs('#download').href=data.download_url}else qs('#download').classList.add('hidden');
+  if(row.download_url){qs('#download').classList.remove('hidden');qs('#download').href=row.download_url;qs('#download').textContent=downloadText}else qs('#download').classList.add('hidden');
   setStep(3);
 }
 function renderGenerationPending(data){
   stopGenerationWatch();
   state.runId=data.run_id||state.runId;
+  saveGenSession();
   const started=Date.parse(data.started_at||'')||Date.now();
   state.genStarted=started;
+  state.genProcessingSeconds=Number(data.current_total_processing_seconds??data.total_processing_seconds??0);
+  state.genTimerSyncedAt=Date.now();
+  state.genProgressMessage=data.progress_message||data.message||'正在生成方案';
   const label=engineLabel(data.provider_name||state.tenderProvider||qs('#provider')?.value);
   qs('#download').classList.add('hidden');
   qs('#result-paths').innerHTML='';
-  qs('#result-summary').innerHTML=`<div class="notice"><strong>正在生成正式初稿</strong><p id="gen-progress-text">正在调用${label}生成方案，已用时${fmtWait(Math.floor((Date.now()-started)/1000))}。请在本页等待，无需刷新。</p></div>`;
+  qs('#result-summary').innerHTML=`<div class="notice"><strong>正在生成正式初稿</strong><p id="gen-progress-text">正在调用${label}生成方案，已用时${fmtWait(state.genProcessingSeconds)}。请在本页等待，无需刷新。</p></div>`;
   setStopVisible(true);
   setStep(3);
   openView('new');
@@ -265,13 +392,18 @@ async function pollGenerationStatus(){
   if(!state.runId) return;
   try{
     const data=await api(`/api/runs/${encodeURIComponent(state.runId)}/status`);
+    if(data.progress_message) state.genProgressMessage=data.progress_message;
+    if(data.current_total_processing_seconds!=null||data.total_processing_seconds!=null){
+      state.genProcessingSeconds=Number(data.current_total_processing_seconds??data.total_processing_seconds??0);
+      state.genTimerSyncedAt=Date.now();
+    }
     if(data.started_at){
       const started=Date.parse(data.started_at);
       if(!Number.isNaN(started)) state.genStarted=started;
     }
-    const done=data.generated||data.run_status==='generation_completed'||(data.result&&['generation_completed','completed'].includes(data.result.status));
-    if(done){renderGenerationResult(data.result||data);return}
-    if(data.result&&data.result.status==='compliance_blocked'){renderGenerationResult(data.result);return}
+    const done=data.generated||data.run_status==='generation_completed'||(data.result&&['generation_completed','completed'].includes(data.result.status))||['COMPLETED_CLEAN','COMPLETED_WITH_WARNINGS','NEEDS_REVIEW'].includes(data.delivery_status||(data.result&&data.result.delivery_status));
+    if(done){renderGenerationResult(data);return}
+    if(data.result&&['compliance_blocked','technical_failed'].includes(data.result.status)){renderGenerationResult(data);return}
     if(data.generation_job_status==='cancelled'||data.run_status==='generation_cancelled'||data.error==='已停止生成'){
       renderGenerationStopped(data.error||data.status_label||'本次生成已停止。');
       return;
@@ -292,7 +424,7 @@ async function pollGenerationStatus(){
 }
 async function stopGeneration(){
   if(!state.runId) return;
-  if(!confirm('确定停止本次生成？未完成的结果不会保存为成品。')) return;
+  if(!confirm('确定停止本次生成？已生成的文件仍会保留。')) return;
   showLoading('正在停止生成…');
   try{
     const out=await api(`/api/runs/${encodeURIComponent(state.runId)}/cancel`,{method:'POST'});
@@ -315,15 +447,28 @@ qs('#generate').addEventListener('click',async()=>{
   const clar={};qsa('.clarification').forEach(x=>clar[decodeURIComponent(x.dataset.question)]=x.value);
   showLoading('正在提交生成任务…');message('');
   try{
-    const data=await api('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.runId,selected_positive_ids:ids,clarification_answers:clar})});
+    const data=await api('/api/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.runId,selected_positive_ids:ids,clarification_answers:clar,speed_profile:currentSpeed(),max_parallelism:Number(qs('#max-parallelism')?.value||3),knowledge_optional:true})});
     hideLoading();
     if(['generation_started','generation_in_progress'].includes(data.status))renderGenerationPending(data);else renderGenerationResult(data);
   }catch(err){hideLoading();message(err.message,true)}
 });
+async function reloadGenerationResult(){
+  const runId=state.runId||(loadGenSession()||{}).runId;
+  if(!runId){message('没有可刷新的生成结果。',true);return}
+  showLoading('正在刷新结果…');
+  try{
+    const data=await api(`/api/runs/${encodeURIComponent(runId)}/status`);
+    if(data.run_status==='generation_in_progress'||data.generation_job_status==='running') renderGenerationPending(data);
+    else renderGenerationResult(data.result?{...data,...data.result,run_id:runId}:data);
+  }catch(err){message(err.message,true)}
+  finally{hideLoading()}
+}
 async function repairGeneration(){showLoading('正在按知识纪律修正…');try{renderGenerationResult(await api('/api/repair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.runId})}))}catch(err){message(err.message,true)}finally{hideLoading()}}
+async function repairLocal(){if(!state.runId)return;showLoading('正在仅针对待复核内容做自动修复…');try{renderGenerationResult(await api('/api/repair-local',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.runId})}))}catch(err){message(err.message,true)}finally{hideLoading()}}
 qs('#back-brief').onclick=()=>setStep(1);
 qs('#stop-generation').onclick=()=>stopGeneration();
-qs('#new-another').onclick=()=>{stopGenerationWatch();setStopVisible(false);qs('#brief-form').reset();state.runId=null;setStep(1);message('')};
+if(qs('#repair-local'))qs('#repair-local').onclick=()=>repairLocal();
+qs('#new-another').onclick=()=>{stopGenerationWatch();setStopVisible(false);qs('#brief-form').reset();state.runId=null;setStep(1);message('')}
 
 async function deleteHistoryRun(runId, deleteFiles){
   const ok=deleteFiles?confirm('将同时删除这条历史记录和已生成的 Word/PPT 等文件，删除后无法恢复。确定继续？'):confirm('只从历史列表中移除这条记录，已生成的文件仍会保留。确定继续？');
@@ -340,9 +485,10 @@ function renderHistory(runs){
   qs('#history-list').innerHTML=runs.length?runs.map(r=>{
     const extra=pathBlock(r);
     const inProgress=r.run_status==='generation_in_progress';
-    const action=r.generated?`<a href="${r.download_url}">下载</a>`:inProgress?`<button class="secondary watch-run" data-run-id="${r.run_id}" data-provider="${escapeHtml(r.provider_name||'')}">查看生成进度</button>`:r.can_resume_tender?`<button class="secondary resume-tender" data-run-id="${r.run_id}" data-provider="${escapeHtml(r.provider_name||'')}">继续识别</button>`:r.can_resume_recommendation?`<button class="secondary resume-run" data-run-id="${r.run_id}">继续</button>`:`<span class="run-status">${escapeHtml(r.status_label||'')}</span>`;
-    const duration=r.elapsed_seconds>0?` · 用时${fmtWait(r.elapsed_seconds)}`:'';
-    const meta=inProgress?`${escapeHtml(r.medium)} · ${escapeHtml(engineLabel(r.provider_name))} · 正在生成，请到「新建方案」第3步查看${duration}`: `${escapeHtml(r.medium)} · ${escapeHtml(engineLabel(r.provider_name))} · ${escapeHtml(r.status_label||'')}${duration}`;
+    const action=r.generated||r.artifact_available?`<a href="${r.download_url}">${r.delivery_status==='NEEDS_REVIEW'?'下载待复核版本':'下载'}</a>`:inProgress?`<button class="secondary watch-run" data-run-id="${r.run_id}" data-provider="${escapeHtml(r.provider_name||'')}">查看生成进度</button>`:r.can_resume_tender?`<button class="secondary resume-tender" data-run-id="${r.run_id}" data-provider="${escapeHtml(r.provider_name||'')}">继续识别</button>`:r.can_resume_recommendation?`<button class="secondary resume-run" data-run-id="${r.run_id}">继续</button>`:`<span class="run-status">${escapeHtml(r.status_label||'')}</span>`;
+    const duration=r.total_processing_seconds!=null?` · 总处理耗时${fmtWait(r.total_processing_seconds)}`:(r.generation_stage_seconds>0?` · 生成阶段耗时${fmtWait(r.generation_stage_seconds)}`:'');
+    const modeLabel={fast:'快速',balanced:'均衡',deep:'深度'}[r.speed_profile||'balanced']||'均衡';
+    const meta=inProgress?`${escapeHtml(r.medium)} · ${escapeHtml(engineLabel(r.provider_name))} · ${modeLabel} · 正在生成，请到「新建方案」第3步查看${duration}`: `${escapeHtml(r.medium)} · ${escapeHtml(engineLabel(r.provider_name))} · ${modeLabel} · ${escapeHtml(r.status_label||'')}${duration}`;
     const deletes=`<div class="run-delete"><button class="secondary delete-history" type="button" data-run-id="${escapeHtml(r.run_id)}">删除历史记录</button><button class="danger delete-history-files" type="button" data-run-id="${escapeHtml(r.run_id)}">删除历史记录与文件</button></div>`;
     return `<div class="run"><div><div class="run-title">${escapeHtml(r.project_name)}｜${escapeHtml(r.scenario)}</div><div class="run-meta">${meta}</div>${extra}</div><div class="run-action">${action}${deletes}</div></div>`;
   }).join(''):'<p class="hint">暂无生成记录。生成进度请在「新建方案」第3步查看。</p>';
@@ -363,10 +509,11 @@ async function renderProviderSettings(){
     const cfg=await api(`/api/providers/${p.provider_name}/config`);
     const grokHint=p.provider_type==='grok_build'?`<p class="hint">${p.user_status==='connected'?'本机Grok已登录且测试通过，可用于生成。':p.user_status==='installed'?'本机Grok CLI已安装，请点测试连接确认登录后再用于生成。':'本机Grok Bridge。未安装或未登录时，可继续使用千问。'}</p>`:'';
     const kimiHint=p.provider_name==='kimi_moonshot'?`<p class="hint">在 platform.kimi.com 创建 API Key。国内默认接口为 https://api.moonshot.cn/v1 ，默认模型 kimi-k3。保存后请点测试连接。</p>`:'';
+    const glmHint=p.provider_name==='glm_zhipu'?`<p class="hint">在 open.bigmodel.cn 创建 API Key。国内默认接口为 https://open.bigmodel.cn/api/paas/v4 ，默认模型 glm-4.7。若使用国际站 z.ai，把地址改成 https://api.z.ai/api/paas/v4 。保存后请点测试连接。</p>`:'';
     const needsKey=p.provider_type==='openai_compatible'||p.provider_type==='image_generation';
     const imageHint=p.provider_type==='image_generation'?`<p class="hint">这是图片服务，不用于写方案正文。千问万相可与文字千问共用同一把Key。</p>`:'';
     const apiFields=needsKey?`<div class="grid"><div class="field"><label>模型</label><input name="model" value="${escapeHtml(cfg.model||'')}"></div><div class="field"><label>API地址</label><input name="base_url" value="${escapeHtml(cfg.base_url||'')}"></div><div class="field full"><label>API Key</label><input name="api_key" type="password" autocomplete="new-password" placeholder="${cfg.api_key_masked?'已配置（不显示明文）':'输入后安全保存'}"><div class="credential-hint">当前凭证：${cfg.api_key_masked?'已配置':'未配置'}。不会显示完整明文，也不会写入普通文件。</div></div></div>`:`<p class="hint">${p.provider_type==='grok_build'?'不需要在网页填写API Key，由本机Grok登录状态决定。':'该引擎当前无需填写密钥。'}</p>`;
-    cards.push(`<form class="provider-card provider-config" data-provider="${p.provider_name}"><div class="provider-head"><div><strong>${escapeHtml(p.display_name)}</strong><div class="provider-note">${escapeHtml(p.user_message||p.billing_note||'')}</div>${grokHint}${kimiHint}${imageHint}</div><span class="provider-state">${escapeHtml(p.user_status_label||p.user_status)}</span></div>${apiFields}<div class="grid"><div class="field"><label>启用</label><select name="enabled"><option value="true" ${cfg.enabled?'selected':''}>启用</option><option value="false" ${!cfg.enabled?'selected':''}>停用</option></select></div></div><div class="provider-actions"><button class="primary" type="submit">保存配置</button><button class="secondary test-provider" type="button">测试连接</button>${needsKey?'<button class="secondary delete-credential" type="button">删除凭证</button>':''}<span class="provider-note action-status"></span></div></form>`);
+    cards.push(`<form class="provider-card provider-config" data-provider="${p.provider_name}"><div class="provider-head"><div><strong>${escapeHtml(p.display_name)}</strong><div class="provider-note">${escapeHtml(p.user_message||p.billing_note||'')}</div>${grokHint}${kimiHint}${glmHint}${imageHint}</div><span class="provider-state">${escapeHtml(p.user_status_label||p.user_status)}</span></div>${apiFields}<div class="grid"><div class="field"><label>启用</label><select name="enabled"><option value="true" ${cfg.enabled?'selected':''}>启用</option><option value="false" ${!cfg.enabled?'selected':''}>停用</option></select></div></div><div class="provider-actions"><button class="primary" type="submit">保存配置</button><button class="secondary test-provider" type="button">测试连接</button>${needsKey?'<button class="secondary delete-credential" type="button">删除凭证</button>':''}<span class="provider-note action-status"></span></div></form>`);
   }
   qs('#provider-settings').innerHTML=cards.join('');
   qsa('.provider-config').forEach(form=>{
@@ -418,7 +565,11 @@ qs('#tender-upload-form').addEventListener('submit',async e=>{
 });
 function fmtWait(sec){sec=Math.max(0,Number(sec)||0);if(sec<60)return sec+'秒';return Math.floor(sec/60)+'分'+(sec%60)+'秒'}
 function setTenderStopVisible(show){qs('#tender-stop').classList.toggle('hidden',!show)}
-qs('#tender-understand').onclick=async()=>{state.tenderWaitStarted=Date.now();const label=engineLabel(state.tenderProvider||qs('#tender-provider')?.value);qs('#tender-process-status').textContent=`正在调用${label}识别需求…大文件可能需要几分钟。`;setTenderStopVisible(true);saveTenderSession();try{await api('/api/tender/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.tenderRunId,provider_name:state.tenderProvider})});pollTender()}catch(err){setTenderStopVisible(false);qs('#tender-process-status').textContent=err.message}};
+function tenderFailText(st){const reason=(st&&(st.error||st.message))||'任务未正常完成，请重试';return String(reason).indexOf('需求识别失败')===0?reason:('需求识别失败：'+reason)}
+function markTenderFailed(st){setTenderStopVisible(false);qs('#tender-process-status').textContent=tenderFailText(st||{});qs('#tender-understand').textContent='重新识别'}
+function tenderIsFailed(st){st=st||{};return !!(st.error||['understanding_failed','cancelled','failed','stale'].includes(st.pack_status))}
+async function startTenderRecognition(){state.tenderWaitStarted=Date.now();state.tenderRecognitionStatus=null;setTenderStage(2);qs('#tender-understand').textContent='开始识别需求';const label=engineLabel(state.tenderProvider||qs('#tender-provider')?.value);qs('#tender-process-status').textContent=`正在调用${label}识别需求…大文件可能需要几分钟。`;setTenderStopVisible(true);saveTenderSession();try{await api('/api/tender/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.tenderRunId,provider_name:state.tenderProvider})});pollTender()}catch(err){markTenderFailed({error:err.message})}}
+qs('#tender-understand').onclick=startTenderRecognition;
 qs('#tender-stop').onclick=async()=>{if(!state.tenderRunId)return;if(!confirm('确定停止本次需求识别？'))return;try{await api(`/api/runs/${encodeURIComponent(state.tenderRunId)}/cancel`,{method:'POST'});setTenderStopVisible(false);qs('#tender-process-status').textContent='已停止识别'}catch(err){qs('#tender-process-status').textContent=err.message}};
 qs('#tender-reload').onclick=()=>reloadTenderState();
 async function reloadTenderState(){
@@ -433,13 +584,17 @@ async function pollTender(fail=0){
   if(state.tenderPoll){clearTimeout(state.tenderPoll);state.tenderPoll=null}
   try{
     const data=await api(`/api/tender/runs/${encodeURIComponent(state.tenderRunId)}`);
-    if(data.pack){setTenderStopVisible(false);renderTenderPack(data.pack);return}
-    if(data.status?.error){setTenderStopVisible(false);qs('#tender-process-status').textContent=data.status.error;return}
+    if(data.pack){setTenderStopVisible(false);qs('#tender-understand').textContent='开始识别需求';renderTenderPack(data.pack,data.status||{});return}
     const st=data.status||{};
+    if(tenderIsFailed(st)){markTenderFailed(st);return}
     const elapsed=st.elapsed_seconds!=null?st.elapsed_seconds:(state.tenderWaitStarted?Math.floor((Date.now()-state.tenderWaitStarted)/1000):0);
     const label=st.engine_label||engineLabel(state.tenderProvider||qs('#tender-provider')?.value);
-    const running=st.pack_status==='understanding'||st.stage==='A4_PROVIDER_UNDERSTANDING';
+    const running=!!data.worker_alive||st.pack_status==='understanding'||st.stage==='A4_PROVIDER_UNDERSTANDING';
     setTenderStopVisible(running);
+    if(!running){
+      const waited=state.tenderWaitStarted?Math.floor((Date.now()-state.tenderWaitStarted)/1000):0;
+      if(waited>=45){markTenderFailed({error:'任务未正常完成，请重试'});return}
+    }
     qs('#tender-process-status').textContent=running?`正在调用${label}识别需求，已用时${fmtWait(elapsed)}。可刷新或点「重新加载状态」。`:(st.message||'任务处理中，正在同步状态…');
     state.tenderPoll=setTimeout(()=>pollTender(0),2000);
   }catch(err){
@@ -451,19 +606,33 @@ async function pollTender(fail=0){
     qs('#tender-process-status').textContent=(err.message||'连接失败')+' 可点「重新加载状态」继续查看。';
   }
 }
-function renderTenderPack(pack){
+function renderTenderPack(pack,recognitionStatus={}){
   state.tenderPack=pack;
+  state.tenderRecognitionStatus=recognitionStatus||{};
   const facts=pack.project_facts||{};
   const sceneOptions=(state.scenarios||[]).map(x=>`<option value="${escapeHtml(x)}" ${x==='完整物业服务方案'?'selected':''}>${escapeHtml(x)}</option>`).join('');
-  qs('#tender-pack').innerHTML=`<div class="stage-result"><strong>需求包已生成</strong><br>共${(pack.requirements||[]).length}条要求；冲突${(pack.conflicts||[]).length}组；疑似模板${(pack.potential_boilerplate||[]).length}条。点击确认后将按完整服务方案继续，不再因未逐条勾选而中断。</div><div class="drawer"><h3>Brief生成方式</h3><p class="hint">方案场景请选择完整物业服务方案，以输出全套服务内容，而不是单个模块章节。</p><div class="grid"><div class="field"><label>项目名称</label><input id="seed-project-name" value="${escapeHtml(facts.project_name?.value||'')}"></div><div class="field"><label>项目类型</label><input id="seed-project-type" value="${escapeHtml(facts.project_type?.value||'')}"></div><div class="field"><label>方案场景 <span>*</span></label><select id="seed-scenario">${sceneOptions}</select></div><div class="field"><label>输出媒介 <span>*</span></label><select id="seed-medium"><option value="WORD" selected>WORD</option><option value="PPT">PPT</option></select></div></div><div class="actions"><button class="primary" id="confirm-tender" type="button">确认并推荐知识</button></div></div>`;
-  qs('#confirm-tender').onclick=submitTenderConfirmation;setTenderStage(3);
+  const currentProvider=state.tenderProvider||qs('#tender-provider')?.value||'';
+  const providerOptions=(state.providers||[]).filter(p=>p.capability!=='image'&&p.selectable).map(p=>`<option value="${escapeHtml(p.provider_name)}" ${p.provider_name===currentProvider?'selected':''}>${escapeHtml(p.display_name)}</option>`).join('');
+  const fallback=recognitionStatus.recognition_outcome==='AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK';
+  const fallbackConfirmed=!!recognitionStatus.local_fallback_confirmed;
+  const warning=fallback&&!fallbackConfirmed?`<div class="notice warning"><strong>AI需求识别未完成</strong><p>当前仅展示本地解析结果。你可以重试AI识别，或在确认风险后继续。</p><div class="actions"><button class="secondary" id="retry-tender-ai" type="button">重新识别</button><button class="primary" id="accept-local-fallback" type="button">继续使用本地解析</button></div></div>`:(fallback?`<div class="notice warning"><strong>正在使用本地解析结果</strong><p>AI识别未完成；你已确认继续。生成完整方案前请核对关键要求。</p></div>`:'');
+  qs('#tender-pack').innerHTML=`${warning}<div class="stage-result"><strong>${fallback?'本地需求包已生成':'AI需求识别已完成'}</strong><br>共${(pack.requirements||[]).length}条要求；冲突${(pack.conflicts||[]).length}组；疑似模板${(pack.potential_boilerplate||[]).length}条。</div><div class="drawer"><h3>Brief生成方式</h3><p class="hint">方案场景请选择完整物业服务方案，以输出全套服务内容，而不是单个模块章节。</p><div class="grid"><div class="field"><label>项目名称</label><input id="seed-project-name" value="${escapeHtml(facts.project_name?.value||'')}"></div><div class="field"><label>项目类型</label><input id="seed-project-type" value="${escapeHtml(facts.project_type?.value||'')}"></div><div class="field"><label>方案场景 <span>*</span></label><select id="seed-scenario">${sceneOptions}</select></div><div class="field"><label>输出媒介 <span>*</span></label><select id="seed-medium"><option value="WORD" selected>WORD</option><option value="PPT">PPT</option></select></div><div class="field full"><label>后续使用的AI引擎</label><select id="seed-provider">${providerOptions}</select></div><div class="field full"><label>生成模式</label><div class="mode-row"><label class="mode-card"><input type="radio" name="seed_speed_profile" value="fast"> 快速</label><label class="mode-card recommended"><input type="radio" name="seed_speed_profile" value="balanced" checked> 均衡（推荐）</label><label class="mode-card"><input type="radio" name="seed_speed_profile" value="deep"> 深度</label></div></div></div><div class="actions"><button class="primary" id="confirm-tender" type="button" ${fallback&&!fallbackConfirmed?'disabled title="请先重新识别或确认使用本地解析结果"':''}>确认并推荐知识</button></div></div>`;
+  qs('#confirm-tender').onclick=submitTenderConfirmation;
+  const retry=qs('#retry-tender-ai');if(retry)retry.onclick=startTenderRecognition;
+  const accept=qs('#accept-local-fallback');if(accept)accept.onclick=acceptLocalTenderFallback;
+  setTenderStage(3);
 }
+async function acceptLocalTenderFallback(){showLoading('正在确认本地解析结果…');try{const data=await api('/api/tender/accept-local-fallback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.tenderRunId})});renderTenderPack(data.pack,data.status||{})}catch(err){tenderNotice(err.message,true)}finally{hideLoading()}}
 async function submitTenderConfirmation(){
   const scenario=qs('#seed-scenario').value||'完整物业服务方案';
   const medium=qs('#seed-medium').value||'WORD';
   showLoading('正在生成Brief并推荐知识…');
   try{
-    const data=await api('/api/tender/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.tenderRunId,decisions:{accept_remaining:true},brief_options:{project_name:qs('#seed-project-name')?.value||'',project_type:qs('#seed-project-type')?.value||'',scenario,medium,provider_name:state.tenderProvider}})});
+    const seedSpeed=(document.querySelector('input[name="seed_speed_profile"]:checked')||{}).value||currentSpeed();
+    const provider=qs('#seed-provider')?.value||state.tenderProvider;
+    state.tenderProvider=provider;saveTenderSession();
+    setSpeed(seedSpeed);
+    const data=await api('/api/tender/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.tenderRunId,decisions:{accept_remaining:true},brief_options:{project_name:qs('#seed-project-name')?.value||'',project_type:qs('#seed-project-type')?.value||'',scenario,medium,provider_name:provider,speed_profile:seedSpeed}})});
     if(data.status==='blocked_clarification'){tenderNotice(data.message,true);return}
     setTenderStage(4);openView('new');renderRecommendation(data.recommendation);
   }catch(err){tenderNotice(err.message,true)} finally{hideLoading()}
@@ -485,9 +654,20 @@ async function loadConfig(switchView=true){
   if(data.default_medium) qs('#medium').value=data.default_medium;
   renderProviderSelect(state.providers,data.default_provider);
   renderHistory(data.runs||[]);
+  try{state.speedProfile=sessionStorage.getItem('mmf_speed_profile')||'balanced'}catch(_){state.speedProfile='balanced'}
+  setSpeed(state.speedProfile);
+  refreshEta();
   if(switchView && state.firstRun) openView('setup');
   const saved=loadTenderSession();
   if(saved&&saved.runId&&!state.tenderRunId){state.tenderRunId=saved.runId;state.tenderProvider=saved.provider||state.tenderProvider}
+  const gen=loadGenSession();
+  if(gen&&gen.runId){
+    state.runId=gen.runId;
+    const latest=(data.runs||[]).find(r=>r.run_id===gen.runId);
+    if(latest&&(latest.generated||latest.run_status==='generation_completed')){
+      renderGenerationResult({status:'generation_completed',medium:latest.medium,download_url:latest.download_url,word_path:latest.word_path,output_dir:latest.output_dir,run_id:latest.run_id,elapsed_seconds:latest.elapsed_seconds,total_processing_seconds:latest.total_processing_seconds,test_mode:latest.test_mode,provider_name:latest.provider_name});
+    }
+  }
 }
 loadConfig().catch(err=>message(err.message,true));
 </script>

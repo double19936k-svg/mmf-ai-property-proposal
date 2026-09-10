@@ -1,6 +1,8 @@
 ﻿param(
     [string]$PythonExecutable = 'python',
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    [switch]$PptOnly,
+    [switch]$NoDialog
 )
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -73,9 +75,10 @@ function Find-Npm([string]$NodeExe) {
 
 try {
     Write-Host 'MMF first install started...'
-    $python = Find-Python -Preferred $PythonExecutable
+    $existingPython = Join-Path $venvDir 'Scripts\python.exe'
+    $python = if (Test-Path -LiteralPath $existingPython) { $existingPython } else { Find-Python -Preferred $PythonExecutable }
     Write-Host ("Using Python: {0}" -f $python)
-    if (-not $CheckOnly) {
+    if (-not $CheckOnly -and -not $PptOnly) {
         if (-not (Test-Path -LiteralPath (Join-Path $venvDir 'Scripts\python.exe'))) {
             Write-Host 'Creating isolated Python environment...'
             & $python -m venv $venvDir
@@ -84,7 +87,7 @@ try {
     }
     $venvPython = Join-Path $venvDir 'Scripts\python.exe'
     if (-not (Test-Path -LiteralPath $venvPython)) { $venvPython = $python }
-    if (-not $CheckOnly) {
+    if (-not $CheckOnly -and -not $PptOnly) {
         Write-Host 'Installing Python packages into isolated environment...'
         & $venvPython -m pip install --upgrade pip
         if (-not (Test-Path -LiteralPath $reqFile)) { throw 'Missing app\requirements.txt' }
@@ -95,23 +98,44 @@ try {
     $node = Find-Node
     $nodeModules = Join-Path $appDir 'node_modules'
     $artifactTool = Join-Path $nodeModules '@oai\artifact-tool\package.json'
-    if ($node -and -not $CheckOnly -and -not (Test-Path -LiteralPath $artifactTool)) {
+    $pptLog = Join-Path $logsDir 'ppt_install.log'
+    Add-Content -LiteralPath $pptLog -Value ((Get-Date).ToString('o') + ' PPT dependency check started')
+    $pptReady = $false
+    if ($node) {
+        & $node (Join-Path $appDir 'check_ppt_runtime.mjs') $nodeModules >> $pptLog 2>&1
+        $pptReady = $LASTEXITCODE -eq 0
+    }
+    if ($node -and -not $CheckOnly -and -not $pptReady) {
         $npmCmd = Find-Npm $node
+        if (-not $npmCmd) { throw 'Node is ready, but npm is missing. Repair the Node/npm installation. See logs\ppt_install.log.' }
         if ($npmCmd) {
             Write-Host ("Installing Node packages with {0}" -f $npmCmd)
             Push-Location $appDir
-            try { & $npmCmd install --no-audit --no-fund } finally { Pop-Location }
+            try {
+                & $npmCmd install --no-audit --no-fund >> $pptLog 2>&1
+                $npmExit = $LASTEXITCODE
+                Add-Content -LiteralPath $pptLog -Value ("npm_exit_code={0}" -f $npmExit)
+                if ($npmExit -ne 0) { throw 'PPT dependency install failed. Node is installed. Use a complete MMF package or check logs\ppt_install.log.' }
+            } finally { Pop-Location }
         }
     }
+    if ($node) {
+        & $node (Join-Path $appDir 'check_ppt_runtime.mjs') $nodeModules >> $pptLog 2>&1
+        if ($LASTEXITCODE -ne 0) { throw 'PPT dependency validation failed. Node is ready; see logs\ppt_install.log.' }
+        Add-Content -LiteralPath $pptLog -Value 'PPT_DEPENDENCIES=PASS'
+    } elseif ($PptOnly) { throw 'Node runtime not found.' }
     if ($node) { Write-Host ("Using Node: {0}" -f $node) }
 
     $env:MMF_PACKAGE_ROOT = $packageRoot
     $env:MMF_APP_ROOT = $appDir
     $env:PYTHONPATH = $appDir
+    $env:RUNTIME_NODE = $node
+    $env:RUNTIME_NODE_MODULES = $nodeModules
     Write-Host 'Running environment check...'
     & $venvPython (Join-Path $appDir 'env_check.py')
+    $environmentExit = $LASTEXITCODE
     $pythonDocx = & $venvPython -c "import docx; print(docx.__version__)" 2>$null
-    $status = if ($pythonDocx) { 'PASS' } else { 'FAIL' }
+    $status = if ($pythonDocx -and $environmentExit -eq 0) { 'PASS' } else { 'FAIL' }
     $config = [ordered]@{
         schema_version = 'runtime-config-v0.3'
         python_executable = $venvPython
@@ -129,9 +153,9 @@ try {
     exit 0
 } catch {
     Write-Host $_.Exception.Message
-    try {
+    if (-not $NoDialog) { try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
         [System.Windows.Forms.MessageBox]::Show([string]$_.Exception.Message, 'MMF Desktop Install', 'OK', 'Error') | Out-Null
-    } catch {}
+    } catch {} }
     exit 1
 }

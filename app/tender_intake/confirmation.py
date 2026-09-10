@@ -139,7 +139,7 @@ def apply_confirmation(pack: dict[str, Any], decisions: dict[str, Any]) -> dict[
 
 
 def _confirmed_texts(pack: dict[str, Any], requirement_type: str) -> list[str]:
-    return [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["requirement_type"] == requirement_type and row["confirmation_status"] in {"CONFIRMED", "EDITED"}]
+    return [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["requirement_type"] == requirement_type and row["confirmation_status"] in {"CONFIRMED", "EDITED"} and not row.get("excluded_from_solution_body")]
 
 
 def seed_brief(pack: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
@@ -148,7 +148,7 @@ def seed_brief(pack: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
     facts = {key: row.get("value") for key, row in pack.get("project_facts", {}).items() if row.get("confirmation_status") == "CONFIRMED"}
     project_name = str(facts.get("project_name") or options.get("project_name") or "").strip() or "未命名项目"
     project_type = str(facts.get("project_type") or options.get("project_type") or "").strip() or "物业服务项目"
-    confirmed_requirements = [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["confirmation_status"] in {"CONFIRMED", "EDITED"}]
+    confirmed_requirements = [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["confirmation_status"] in {"CONFIRMED", "EDITED"} and not row.get("excluded_from_solution_body")]
     excluded = _confirmed_texts(pack, "exclusion")
     service_scope_parts = [text for text in confirmed_requirements if text not in excluded]
     if excluded:
@@ -173,4 +173,6 @@ def seed_brief(pack: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         "additional_information": "来源：已确认Project Requirement Pack；未确认内容保持为空。",
         "requirement_pack_id": pack["pack_id"],
         "requirement_pack_version": pack.get("pack_version", 1),
+        "speed_profile": str(options.get("speed_profile") or "balanced"),
+        "max_parallelism": options.get("max_parallelism"),
     }

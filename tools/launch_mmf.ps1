@@ -161,6 +161,17 @@ try {
             if ($candidate -and (Test-Path -LiteralPath $candidate)) { $nodeExe = $candidate; break }
         }
     }
+    # Never trust a persisted configuration as proof dependencies still exist.
+    $currentModules = Join-Path $appDir 'node_modules'
+    $runtime | Add-Member -NotePropertyName node_modules -NotePropertyValue $currentModules -Force
+    if ($nodeExe -and (Test-Path -LiteralPath $nodeExe)) {
+        & $nodeExe (Join-Path $appDir 'check_ppt_runtime.mjs') $currentModules | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-LauncherLog 'ppt_dependency_check_failed'
+            throw 'Node is ready, but PPT dependencies are missing or broken. Run 首次安装.cmd; see logs\ppt_install.log.'
+        }
+        Write-LauncherLog 'ppt_dependency_check_pass'
+    }
     if ($nodeExe -and (Test-Path -LiteralPath $nodeExe)) {
         $env:Path = (Split-Path -Parent $nodeExe) + ';' + $env:Path
         $runtime | Add-Member -NotePropertyName node_executable -NotePropertyValue $nodeExe -Force

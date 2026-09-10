@@ -7,6 +7,16 @@ from typing import Any
 from .base import AIProvider, normalize_generation, normalize_recommendation, write_json
 
 
+def _current_batch_id_from_prompt(prompt: str) -> str | None:
+    text = str(prompt or "")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("CURRENT_BATCH_ID") and "=" in stripped:
+            value = stripped.split("=", 1)[1].strip().split()[0].strip("\"'")
+            return value or None
+    return None
+
+
 class MockProvider(AIProvider):
     provider_version = "0.1"
 
@@ -79,6 +89,7 @@ class MockProvider(AIProvider):
         process_text = "；".join(step for row in processes for step in row.get("steps", []))
         must = list(contract.get("must_cover") or ["本节项目化实施逻辑"])
         outputs = list(contract.get("required_outputs") or ["实施记录"])
+        required_tables = list(contract.get("required_tables") or [])
         filler = "围绕现场任务明确责任界面、执行动作、异常处理、检查方法和成果记录，使服务内容能够被实施、跟踪和复核。"
         target = int(((contract.get("target_words") or {}).get("min") or 400))
         short = bool(request.get("mock_short"))
@@ -89,7 +100,14 @@ class MockProvider(AIProvider):
             "section_id": contract.get("section_id") or request.get("section_id") or "S01-01",
             "title": contract.get("section_title") or "本节",
             "body_blocks": [{"type": "paragraph", "content": body}],
-            "tables": [],
+            "tables": [
+                {
+                    "title": str(item.get("purpose") or "实施检查表") if isinstance(item, dict) else str(item),
+                    "headers": ["检查事项", "责任动作", "记录方式"],
+                    "rows": [["现场任务", "按计划执行并复核", "形成可追溯记录"]],
+                }
+                for item in required_tables
+            ],
             "processes": processes,
             "callouts": [],
             "cross_references": [],
@@ -99,10 +117,50 @@ class MockProvider(AIProvider):
             "generation_notes": ["mock_longform_section"],
         }
 
+    def _batch_fragments(self, request: dict[str, Any]) -> dict[str, Any]:
+        prompt = str(request.get("prompt") or "")
+        payload = {}
+        if "Context Pack：" in prompt:
+            try:
+                payload = json.loads(prompt.rsplit("Context Pack：\n", 1)[1])
+            except (json.JSONDecodeError, IndexError, TypeError):
+                payload = {}
+        rows = payload.get("sections") or []
+        requested = payload.get("requested_section_ids") or request.get("section_ids") or []
+        sections = []
+        drop = set(request.get("mock_drop_sections") or [])
+        fail = set(request.get("mock_fail_sections") or [])
+        for row in rows:
+            contract = row.get("section_contract") or {}
+            sid = contract.get("section_id")
+            if sid in drop:
+                continue
+            fake = dict(request)
+            fake["prompt"] = "Context Pack：\n" + json.dumps(row, ensure_ascii=False)
+            fake["mock_short"] = bool(request.get("mock_short") or sid in fail)
+            sections.append(self._section_fragment(fake))
+        if not sections and requested:
+            for sid in requested:
+                if sid in drop:
+                    continue
+                fake = dict(request)
+                fake["section_id"] = sid
+                sections.append(self._section_fragment(fake))
+        batch_id = _current_batch_id_from_prompt(prompt) or request.get("batch_id") or "GB-mock"
+        return {"batch_id": batch_id, "sections": sections}
+
     def invoke_structured(self, request: dict[str, Any], task_dir: Path) -> dict[str, Any]:
         task_dir.mkdir(parents=True, exist_ok=True)
+        if request.get("mock_rate_limit"):
+            from .base import ProviderError
+            raise ProviderError("429 rate limit", error_code="RATE_LIMIT")
+        if request.get("mock_latency_error"):
+            from .base import ProviderError
+            raise ProviderError("timed out", error_code="TIMEOUT")
         if request.get("mock_response"):
             result = dict(request["mock_response"])
+        elif request.get("generation_mode") == "longform_batch" or "一次生成多个Word Section" in str(request.get("prompt") or ""):
+            result = self._batch_fragments(request)
         elif request.get("generation_mode") == "longform_section" or "section_contract" in str(request.get("prompt") or ""):
             result = self._section_fragment(request)
         else:

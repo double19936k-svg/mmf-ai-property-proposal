@@ -7,7 +7,7 @@ MMF 是本机桌面工具。公开仓库只应包含源码、示例配置和脱�
 - 在页面「AI引擎设置」中填写，或使用 `.env` / 环境变量。
 - Windows 上默认写入凭证管理器，不写入普通 JSON 配置，也不应出现在日志里。
 - `.env`、`config/providers.local.json`、`config/user_settings.json` 已加入 `.gitignore`。
-- 示例文件只允许明显假值：`YOUR_QWEN_API_KEY`、`YOUR_KIMI_API_KEY`、`YOUR_API_KEY_HERE`。
+- 示例文件只允许明显假值：`YOUR_QWEN_API_KEY`、`YOUR_KIMI_API_KEY`、`YOUR_XAI_API_KEY`、`YOUR_ZHIPU_API_KEY`。
 
 ## 不会随仓库提供的内容
 

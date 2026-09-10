@@ -51,7 +51,13 @@ def classify_provider_failure(
         return "OUTPUT_CONTRACT_ERROR"
     if raw_code in {"NETWORK_ERROR", "TIMEOUT", "PROXY_ERROR"} or any(token in text for token in ("timed out", "timeout", "connection reset", "network error")):
         return "NETWORK_ERROR"
+    if any(token in text for token in ("access is denied", "access denied", "permission denied")) and not any(
+        token in text for token in ("not authenticated", "login required", "http 401")
+    ):
+        return "PROVIDER_RUNTIME_ERROR"
     if raw_code in {"AUTH_REQUIRED", "PROVIDER_AUTH_REQUIRED"} or any(token in text for token in ("http 401", "unauthorized", "login required", "not authenticated")):
+        if any(token in text for token in ("timed out", "timeout", "network error", "connection reset")):
+            return "NETWORK_ERROR"
         if auth_probe and (auth_probe.get("authenticated") is False or auth_probe.get("auth_state") in {"UNAUTHENTICATED", "PROVIDER_AUTH_REQUIRED"}):
             return "PROVIDER_AUTH_REQUIRED"
         return "AUTH_STATE_UNKNOWN"

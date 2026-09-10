@@ -113,6 +113,8 @@ def build_canonical_project_brief(pack: dict[str, Any], brief: dict[str, Any], a
         str(row.get("normalized_requirement") or row.get("text") or "")
         for row in pack.get("requirements", [])
         if row.get("mandatory_level") == "MUST"
+        and row.get("tender_content_class") not in {"BID_FORM_TEMPLATE", "LEGAL_FORM_TEMPLATE", "AUTHORIZATION_TEMPLATE", "ADMINISTRATIVE_TEMPLATE"}
+        and not row.get("excluded_from_solution_body")
     ][:40]
     return {
         "schema_version": "canonical-project-brief-v0.1",

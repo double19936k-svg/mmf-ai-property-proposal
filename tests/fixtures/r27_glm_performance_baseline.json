@@ -1,0 +1,30 @@
+{
+  "run_id": "tender_20260910_102139_13dfa9",
+  "provider": "glm_zhipu",
+  "model": "glm-4.7",
+  "speed_profile": "fast",
+  "total_processing_seconds": 2830.664,
+  "longform_generation_seconds": 920.428,
+  "section_repair_seconds": 1760.387,
+  "logical_section_count": 27,
+  "generation_batch_count": 15,
+  "provider_call_count": 27,
+  "initial_generation_provider_calls": 17,
+  "continuation_calls": 2,
+  "under_length_repair_calls": 2,
+  "quality_repair_calls": 6,
+  "timeout_retries": 3,
+  "rate_limit_retries": 0,
+  "final_artifact_repair_calls": 0,
+  "low_value_repair_estimate": 6,
+  "batch_executed_as_one_request_initially": "partial",
+  "root_cause": "CALL_REDUCTION_RATIO used total invokes including repairs; after soft latency, future_batch_split turned GB-04 and GB-09 into singleton generate calls; under-length and quality loops always allowed 2 provider repairs.",
+  "gb01": "one generate_batch call returned S01-01 and S01-02",
+  "replay": {
+    "S02-02": {"old_provider_repairs": 2, "new_policy": "MATERIAL_UNDER_LENGTH max 1 then NEEDS_REVIEW; skip 360s timeout second continue"},
+    "S04-02": {"old_provider_repairs": 2, "new_policy": "QUALITY max 1 then fail-soft; skip second 360s timeout"},
+    "S06-01": {"old_provider_repairs": 2, "new_policy": "ordinary quality max 1; skip second 154s repair if first still fail"}
+  },
+  "new_expected_initial_calls_if_no_split": 15,
+  "new_expected_provider_repairs_kept": 4
+}

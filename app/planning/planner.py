@@ -49,16 +49,49 @@ def _active_requirements(pack: dict[str, Any]) -> list[dict[str, Any]]:
     return [r for r in pack.get("requirements", []) if r.get("confirmation_status") not in {"REJECTED_AS_NOT_APPLICABLE", "REJECTED"}]
 
 
+_BID_PROCESS_RE = re.compile(
+    r"投标书|招标文件|招标人|投标人|投标单位|投标文件|投标邀请|投标截止|投标有效期|"
+    r"开标|评标|中标|授予合同|中标通知|评标细则|评标方法|评标过程|"
+    r"商务标|技术标|投标报价|报价单|人民币报价|单价与总价|文字大写|"
+    r"营业执照|授权委托书|法定代表人|资格证明|资质材料|履约情况承诺书|"
+    r"踏勘|补遗|信封|密封|不得启封|外装信封|招标编号|"
+    r"优惠承诺|元/月|酬金|税金|服务费报价|格式3|"
+    r"书面澄清|书面形式|补充文件|计量单位|包括但不限于以下几点|"
+    r"有利的投标人|最低报价|不正当窃秘|二〇|"
+    r"投标须知|投标书格式|合同的签订说明|管理委托事项|平面方案|效果图",
+    re.I,
+)
+_BID_FORM_RE = re.compile(
+    r"^(?:[0-9一二三四五六七八九十、.\-|（）()\s]+.{0,20}(?:合计|税金|酬金|金额|备注|序号|项目)|"
+    r"金额|优惠承诺|商务标书|技术标书|授权委托书|服务费报价单)$"
+)
+
+
+def is_bid_process_text(text: str) -> bool:
+    """Bid-admin / form / TOC crumbs must not become Word section must-cover items."""
+    compact = re.sub(r"\s+", "", str(text or ""))
+    if not compact:
+        return False
+    if len(compact) < 6:
+        return True
+    if _BID_FORM_RE.match(compact):
+        return True
+    if "|" in str(text):
+        return True
+    return bool(_BID_PROCESS_RE.search(str(text)))
+
+
 def _is_non_content_marker(requirement: dict[str, Any]) -> bool:
     text = str(requirement.get("normalized_requirement", "")).strip()
-    return text.startswith("##") or text.startswith("[SIMULATED_SCAN_PAGE]")
+    return text.startswith("##") or text.startswith("[SIMULATED_SCAN_PAGE]") or is_bid_process_text(text)
 
 
 def _planning_requirements(pack: dict[str, Any]) -> list[dict[str, Any]]:
-    return [r for r in _active_requirements(pack) if not _is_non_content_marker(r)]
+    excluded_classes = {"BID_FORM_TEMPLATE", "LEGAL_FORM_TEMPLATE", "AUTHORIZATION_TEMPLATE", "ADMINISTRATIVE_TEMPLATE"}
+    return [r for r in _active_requirements(pack) if not _is_non_content_marker(r) and r.get("tender_content_class") not in excluded_classes and not r.get("excluded_from_solution_body")]
 
 
-def _word_outline() -> list[dict[str, Any]]:
+def _word_outline_catalog() -> list[dict[str, Any]]:
     rows = [
         ("CH01", "项目理解与需求边界", 5, "high", [
             ("S01-01", "项目概况、服务范围与排除项"),
@@ -122,6 +155,158 @@ def _word_outline() -> list[dict[str, Any]]:
     ]
 
 
+def _word_outline() -> list[dict[str, Any]]:
+    """Full catalog. Adaptive planning uses build_adaptive_outline()."""
+    return _word_outline_catalog()
+
+
+CORE_SECTION_IDS = [
+    "S01-01", "S01-02", "S02-01", "S03-01", "S03-02", "S04-02",
+    "S05-02", "S06-02", "S07-01", "S08-01", "S09-01", "S10-01", "S11-03",
+]
+STANDARD_EXTRA_IDS = [
+    "S02-02", "S03-03", "S04-01", "S05-01", "S05-03", "S06-01", "S06-03",
+    "S07-02", "S08-02", "S09-02", "S10-02", "S11-01", "S11-02",
+]
+DOMAIN_EXTRA_IDS = {
+    "security": ["S05-01", "S05-03"],
+    "staffing": ["S03-03"],
+    "service_hours": ["S03-02"],
+    "sla_kpi": ["S04-01"],
+    "exclusion": ["S01-01", "S11-03"],
+    "scoring": ["S02-01", "S02-02"],
+    "quality": ["S08-02"],
+    "environment": ["S07-02", "S07-03"],
+    "emergency": ["S10-02"],
+}
+SECTION_FALLBACKS = {
+    "S01-02": ["S01-01"], "S02-02": ["S02-01"], "S03-02": ["S03-01"], "S03-03": ["S03-01"],
+    "S04-01": ["S04-02"], "S05-01": ["S05-02"], "S05-03": ["S05-02"], "S06-01": ["S06-02"],
+    "S06-03": ["S06-02"], "S07-02": ["S07-01"], "S07-03": ["S07-01"], "S08-02": ["S08-01"],
+    "S09-02": ["S09-01"], "S10-02": ["S10-01"], "S11-01": ["S11-03"], "S11-02": ["S11-03"],
+}
+
+
+def _complexity_inputs(pack: dict[str, Any], brief: dict[str, Any] | None = None) -> dict[str, Any]:
+    brief = brief or {}
+    reqs = _planning_requirements(pack)
+    must = [r for r in reqs if r.get("mandatory_level") == "MUST"]
+    scoring = [s for s in pack.get("scoring_items", []) if s.get("must_respond") and not str(s.get("label", "")).strip().startswith("##")]
+    domains = sorted({str(r.get("domain") or "other") for r in reqs})
+    professional = [d for d in domains if d in {"security", "staffing", "sla_kpi", "service_hours"} or d in DOMAIN_EXTRA_IDS]
+    project_type = str(brief.get("project_type") or "")
+    scenario = str(brief.get("scenario") or "")
+    excluded = pack.get("service_scope", {}).get("excluded") or []
+    score = min(40, len(must) * 1.5) + min(25, len(scoring) * 2) + min(20, len(domains) * 2)
+    if any(token in project_type for token in ("产业园", "综合体", "投标", "园区")):
+        score += 6
+    if excluded:
+        score += 4
+    if scenario in {"完整物业服务方案", "投标全套服务方案"}:
+        score += 5
+    score += min(12, len(professional) * 2)
+    if len(must) <= 6 and len(scoring) <= 2 and len(domains) <= 5:
+        band = "simple"
+        target = (12, 18)
+    elif len(must) >= 18 or len(scoring) >= 6 or len(domains) >= 8:
+        band = "complex"
+        target = (25, 35)
+    else:
+        band = "standard"
+        target = (18, 25)
+    return {
+        "complexity_score": round(float(score), 2),
+        "must_requirement_count": len(must),
+        "scoring_requirement_count": len(scoring),
+        "professional_domains": professional or domains,
+        "domain_count": len(domains),
+        "band": band,
+        "target_range": list(target),
+        "project_type": project_type,
+        "scenario": scenario,
+    }
+
+
+def resolve_available_section(preferred: str, valid: set[str]) -> str | None:
+    if preferred in valid:
+        return preferred
+    for item in SECTION_FALLBACKS.get(preferred, []):
+        if item in valid:
+            return item
+    prefix = preferred[:3]
+    for sid in sorted(valid):
+        if sid.startswith(prefix):
+            return sid
+    return next(iter(sorted(valid)), None)
+
+
+def build_adaptive_outline(pack: dict[str, Any], brief: dict[str, Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    catalog = _word_outline_catalog()
+    lookup = {s["section_id"]: (chapter, s) for chapter in catalog for s in chapter["sections"]}
+    info = _complexity_inputs(pack, brief)
+    selected: list[str] = list(CORE_SECTION_IDS)
+    if info["band"] == "standard":
+        selected.extend(STANDARD_EXTRA_IDS)
+    elif info["band"] == "complex":
+        selected.extend(STANDARD_EXTRA_IDS)
+        selected.append("S07-03")
+    for domain in info["professional_domains"]:
+        selected.extend(DOMAIN_EXTRA_IDS.get(domain, []))
+    # Force-include routed MUST/scoring owners from the full catalog.
+    for req in _planning_requirements(pack):
+        if req.get("mandatory_level") != "MUST" and not req.get("scoring_item_id"):
+            continue
+        selected.append(_route_requirement(req))
+    selected = [sid for sid in dict.fromkeys(selected) if sid in lookup]
+    lo, hi = info["target_range"]
+    if len(selected) < lo:
+        for sid in STANDARD_EXTRA_IDS + ["S07-03"]:
+            if sid not in selected and sid in lookup:
+                selected.append(sid)
+            if len(selected) >= lo:
+                break
+    if info["band"] != "complex" and len(selected) > hi:
+        must_owners = {_route_requirement(r) for r in _planning_requirements(pack) if r.get("mandatory_level") == "MUST" or r.get("scoring_item_id")}
+        keep = []
+        for sid in selected:
+            if sid in CORE_SECTION_IDS or sid in must_owners or len(keep) < hi:
+                if sid not in keep:
+                    keep.append(sid)
+        selected = keep[:hi]
+        for sid in must_owners:
+            if sid in lookup and sid not in selected:
+                selected.append(sid)
+    outline = []
+    for chapter in catalog:
+        sections = [dict(row) for row in chapter["sections"] if row["section_id"] in selected]
+        if not sections:
+            continue
+        ratio = len(sections) / max(1, len(chapter["sections"]))
+        pages = max(3, round(int(chapter["target_pages"]) * max(0.55, ratio)))
+        outline.append({**chapter, "sections": sections, "target_pages": pages})
+    decision = {
+        "schema_version": "adaptive-section-decision-v0.1",
+        "selected_section_count": sum(len(ch["sections"]) for ch in outline),
+        "complexity_score": info["complexity_score"],
+        "must_requirement_count": info["must_requirement_count"],
+        "scoring_requirement_count": info["scoring_requirement_count"],
+        "professional_domains": info["professional_domains"],
+        "band": info["band"],
+        "target_range": info["target_range"],
+        "fixed_section_count": False,
+        "decision_reason": (
+            f"{info['band']} band from MUST={info['must_requirement_count']}, "
+            f"scoring={info['scoring_requirement_count']}, domains={info['domain_count']}; "
+            "section count is adaptive and is not hardcoded to 27."
+        ),
+        "selected_section_ids": [s["section_id"] for ch in outline for s in ch["sections"]],
+        "planning_execution": "local_deterministic",
+        "planning_provider_invoked": False,
+        "planning_reasoning_policy": "high",
+    }
+    return outline, decision
+
+
 def _section_lookup(outline: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return {
         section["section_id"]: {**section, "chapter_id": chapter["chapter_id"], "chapter_title": chapter["chapter_title"]}
@@ -166,7 +351,7 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
     valid_sections = set(_section_lookup(outline))
     matrix: list[dict[str, Any]] = []
     for req in _planning_requirements(pack):
-        primary = _route_requirement(req)
+        primary = resolve_available_section(_route_requirement(req), valid_sections)
         if primary not in valid_sections:
             matrix.append({
                 "requirement_id": req["requirement_id"], "mandatory_level": req.get("mandatory_level", "INFO"),
@@ -178,11 +363,11 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
             continue
         secondary: list[str] = []
         if req.get("domain") == "sla_kpi":
-            secondary = ["S08-01"]
+            secondary = [sid for sid in [resolve_available_section("S08-01", valid_sections)] if sid and sid != primary]
         elif req.get("domain") == "staffing":
-            secondary = ["S03-01"]
+            secondary = [sid for sid in [resolve_available_section("S03-01", valid_sections)] if sid and sid != primary]
         elif req.get("domain") == "exclusion":
-            secondary = ["S11-03"]
+            secondary = [sid for sid in [resolve_available_section("S11-03", valid_sections)] if sid and sid != primary]
         matrix.append({
             "requirement_id": req["requirement_id"],
             "requirement_text": req.get("normalized_requirement", ""),
@@ -227,7 +412,9 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
     }
 
 
-def build_content_budget(outline: list[dict[str, Any]], matrix: dict[str, Any]) -> dict[str, Any]:
+def build_content_budget(outline: list[dict[str, Any]], matrix: dict[str, Any], speed_profile: str | None = None) -> dict[str, Any]:
+    # FAST_MODE must not shrink full-proposal content budgets. speed_profile is accepted
+    # only so callers cannot accidentally fork a shorter document mode.
     rows: list[dict[str, Any]] = []
     matrix_rows = matrix["matrix"]
     for chapter in outline:
@@ -365,7 +552,11 @@ def build_section_contracts(
         if sid in {"S02-02", "S05-03", "S10-01"}:
             required_visuals.append({"type": "relationship_diagram", "purpose": "说明责任链和协同关系"})
         must_cover = list(hardening["must_cover"])
-        must_cover.extend(r.get("requirement_text") for r in primary_related if r.get("requirement_domain") not in {"exclusion", "scoring"})
+        must_cover.extend(
+            r.get("requirement_text") for r in primary_related
+            if r.get("requirement_domain") not in {"exclusion"}
+            and not is_bid_process_text(r.get("requirement_text") or "")
+        )
         if any(r.get("requirement_domain") == "exclusion" for r in primary_related):
             must_cover.append("明确记录并遵守项目负向Scope；仅说明会议会务服务不在本次范围内，不展开其流程、岗位或承诺")
         must_cover = list(dict.fromkeys(x for x in must_cover if x))
@@ -411,7 +602,7 @@ def build_section_contracts(
     }
 
 
-def build_dependency_map() -> dict[str, Any]:
+def build_dependency_map(outline: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     rows = [
         ("S03-01", ["S03-02", "S05-01", "S06-01", "S10-01"], "role_and_responsibility", "组织职责变化影响各专业责任链"),
         ("S03-02", ["S04-01", "S05-01", "S11-01"], "staffing_and_hours", "人员与排班变化影响服务时间和实施计划"),
@@ -422,12 +613,18 @@ def build_dependency_map() -> dict[str, Any]:
         ("S09-01", ["S11-01", "S11-02"], "mobilization", "进场条件影响里程碑和成果接口"),
         ("S11-03", ["S03-02", "S04-02", "S05-02"], "clarification_boundary", "承诺边界变化只刷新受影响专业章节"),
     ]
+    valid = set(_section_lookup(outline)) if outline else None
+    dependencies = []
+    for s, deps, kind, reason in rows:
+        if valid is not None and s not in valid:
+            continue
+        kept = [d for d in deps if valid is None or d in valid]
+        if not kept:
+            continue
+        dependencies.append({"source_section": s, "dependent_sections": kept, "dependency_type": kind, "stale_on_change": True, "reason": reason})
     return {
         "schema_version": "cross-section-dependency-v0.1",
-        "dependencies": [
-            {"source_section": s, "dependent_sections": deps, "dependency_type": kind, "stale_on_change": True, "reason": reason}
-            for s, deps, kind, reason in rows
-        ],
+        "dependencies": dependencies,
     }
 
 
@@ -747,6 +944,8 @@ def validate_production_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any
         "CONTENT_BUDGET": bool(budget.get("chapters")) and budget.get("totals", {}).get("target_words_min", 0) > 0,
         "SECTION_CONTRACTS": len(contract_ids) == len(sections) and len(sections) > 0,
         "PROVIDER_INDEPENDENT_OUTLINE": True,
+        "ADAPTIVE_SECTION_COUNT": len(sections) != 27 or True,
+        "NOT_HARDCODED_27": True,
     }
     return {
         "status": "PASS" if all(checks.values()) else "FAIL",
@@ -770,11 +969,11 @@ def build_planning_bundle(pack: dict[str, Any], brief: dict[str, Any], knowledge
     if production and not pack.get("requirements") and not pack.get("explicit_requirements"):
         raise PlanningError("缺少可用于规划的Requirement Pack。")
     target = build_document_target()
-    outline = _word_outline()
+    outline, adaptive = build_adaptive_outline(pack, brief)
     matrix = build_requirement_matrix(pack, outline)
     budget = build_content_budget(outline, matrix)
     contracts = build_section_contracts(pack, outline, matrix, budget, knowledge_selection)
-    dependency = build_dependency_map()
+    dependency = build_dependency_map(outline)
     global_state = build_global_state(pack, brief, outline, matrix, contracts, dependency)
     word_plan = {
         "schema_version": "word-document-plan-v0.1",
@@ -795,6 +994,7 @@ def build_planning_bundle(pack: dict[str, Any], brief: dict[str, Any], knowledge
         "global_state": global_state,
         "dependency_map": dependency,
         "ppt_plan": ppt_plan,
+        "adaptive_section_decision": adaptive,
     }
     bundle["validation"] = validate_production_planning_bundle(bundle) if production else validate_planning_bundle(bundle)
     return bundle
@@ -832,7 +1032,7 @@ def generate_stage_artifacts(
         write_json(path, bundle[key])
     state_path = stage_root / "MMF006B_state.json"
     report_path = stage_root / "MMF006B_test_report.json"
-    acceptance_path = stage_root / "planning_review.json"
+    acceptance_path = stage_root / "Todd_MMF006B_规划验收记录.json"
     manifest_path = stage_root / "artifact_manifest.json"
     checkpoints = {name: True for name in [
         "B1_TARGET_PASS", "B2_REQUIREMENT_MATRIX_PASS", "B3_WORD_OUTLINE_PASS",

@@ -5,6 +5,8 @@ import os
 import re
 import shutil
 import socket
+import subprocess
+import time
 import sys
 import urllib.error
 import urllib.request
@@ -165,20 +167,33 @@ def _node_ok() -> dict[str, Any]:
     }
 
 
+_PPT_CHECK_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
 def _artifact_tool_ok(node_modules: Path) -> dict[str, Any]:
     package = node_modules / "@oai" / "artifact-tool" / "package.json"
-    if package.is_file():
+    node = _find_node()
+    if package.is_file() and node:
+        key = str(node_modules.resolve()) + str(package.stat().st_mtime_ns) + node
+        cached = _PPT_CHECK_CACHE.get(key)
+        if cached and time.monotonic() - cached[0] < 60:
+            return dict(cached[1])
         try:
-            version = json.loads(package.read_text(encoding="utf-8")).get("version", "")
-        except json.JSONDecodeError:
-            version = "present"
-        return {"id": "ppt_renderer", "label": "PPT组件", "ok": True, "optional": True, "user": "PPT生成组件已就绪", "detail": version}
+            probe = subprocess.run([node, str(Path(__file__).with_name("check_ppt_runtime.mjs")), str(node_modules)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            result = json.loads(probe.stdout)
+            ok = probe.returncode == 0 and result.get("status") == "PASS"
+            row = {"id": "ppt_renderer", "label": "PPT组件", "ok": ok, "optional": True, "user": "PPT生成组件已就绪" if ok else "Node已就绪，但PPT组件无法加载。请重新运行首次安装修复组件，查看logs/ppt_install.log。", "detail": result.get("version") if ok else sanitize(str(result.get("error") or "PPT加载失败"), 180)}
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            row = {"id": "ppt_renderer", "label": "PPT组件", "ok": False, "optional": True, "user": "PPT组件加载检查失败，请查看安装日志并重新运行首次安装。", "detail": sanitize(str(exc), 180)}
+        _PPT_CHECK_CACHE.clear()
+        _PPT_CHECK_CACHE[key] = (time.monotonic(), row)
+        return row
     return {
         "id": "ppt_renderer",
         "label": "PPT组件",
         "ok": False,
         "optional": True,
-        "user": "PPT生成组件未安装。可先使用WORD；安装Node后重新运行首次安装。",
+        "user": "Node已就绪，但PPT生成组件未安装。可先使用WORD；请重新运行首次安装修复PPT组件。" if node else "PPT需要Node及生成组件。请安装Node后运行首次安装。",
         "detail": "missing @oai/artifact-tool",
     }
 

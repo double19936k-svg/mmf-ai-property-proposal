@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +23,15 @@ CLASSIFICATIONS = {
     "GENERIC_REQUIREMENT",
     "POTENTIAL_BOILERPLATE",
     "CONFLICT_OR_AMBIGUOUS",
+}
+TENDER_CONTENT_CLASSES = {
+    "SERVICE_REQUIREMENT",
+    "SCORING_REQUIREMENT",
+    "PROJECT_FACT",
+    "BID_FORM_TEMPLATE",
+    "LEGAL_FORM_TEMPLATE",
+    "AUTHORIZATION_TEMPLATE",
+    "ADMINISTRATIVE_TEMPLATE",
 }
 MANDATORY_LEVELS = {"MUST", "SHOULD", "INFO", "UNKNOWN"}
 CONFIRMATION_STATUSES = {
@@ -63,7 +75,26 @@ def sha256_bytes(data: bytes) -> str:
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    last_exc: OSError | None = None
+    for attempt in range(8):
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.{attempt}.tmp")
+        try:
+            tmp.write_text(payload, encoding="utf-8")
+            os.replace(tmp, path)
+            return
+        except OSError as exc:
+            last_exc = exc
+            time.sleep(0.04 * (attempt + 1))
+        finally:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
+    if last_exc:
+        raise last_exc
+    path.write_text(payload, encoding="utf-8")
 
 
 def append_jsonl(path: Path, value: Any) -> None:
@@ -130,6 +161,8 @@ def validate_pack_shape(value: dict[str, Any]) -> None:
             raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Requirement结构不完整。")
         if requirement["classification"] not in CLASSIFICATIONS or requirement["mandatory_level"] not in MANDATORY_LEVELS:
             raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Requirement枚举值无效。")
+        if requirement.get("tender_content_class") and requirement["tender_content_class"] not in TENDER_CONTENT_CLASSES:
+            raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Tender内容分类无效。")
         if requirement["confirmation_status"] not in CONFIRMATION_STATUSES:
             raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Requirement确认状态无效。")
         if not isinstance(requirement["sources"], list) or not requirement["sources"]:

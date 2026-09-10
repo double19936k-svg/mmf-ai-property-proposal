@@ -2,9 +2,9 @@
 
 **物业服务方案 / 投标技术方案辅助工具（本机运行）**
 
-版本：**v0.1.0-alpha**  
-状态：**Initial Deployable / Alpha**  
-不是商用成品，不能替代人工终审。
+版本：**v0.1.1-alpha**  
+状态：**Initial Deployable Alpha · R2 Stability & Performance Release**  
+不是 Stable、Production Ready 或 Commercial Ready，不能替代人工终审。
 
 MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与 Word/PPT 输出串成一条本机工作流。浏览器只是操作界面；服务默认只监听 `127.0.0.1`，不主动开放到局域网或公网。
 
@@ -17,10 +17,10 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 
 | 项 | 说明 |
 |---|---|
-| 版本 | `0.1.0-alpha` |
-| 阶段 | 初始可部署（Initial Deployable） |
-| 基线 | 长文按章生成、检查点续写、Word/PPT 渲染、本机安装启动 |
-| 不是 | commercial ready / fully automated bidding / 无需人工审核 |
+| 版本 | `0.1.1-alpha` |
+| 阶段 | 初始可部署 Alpha（R2 稳定性与性能） |
+| 基线 | 长文按章生成、检查点续写、Word/PPT 渲染、Fail-Soft 交付、本机安装启动 |
+| 不是 | Stable / Production Ready / Commercial Ready / fully automated bidding / 无需人工审核 |
 
 已验证过的能力以本仓库源码和文档为准。一次样例的页数或观感，不能推广成每个项目都会自动达到同样质量。
 
@@ -32,9 +32,22 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 - **方案结构**：完整物业服务方案按既定章节计划生成，而不是让模型自己决定写几章。
 - **长文编排**：按章调用 AI，章节完成后留检查点，中断后可从当前章继续。
 - **Word / PPT 输出**：Word 为默认交付；PPT 需本机安装 Node。
-- **多引擎**：千问（云端 API Key）、可选本机 Grok Bridge、Kimi（可配 Key 试用）、Mock（只验证流程）。
+- **多引擎**：千问（云端 API Key）、智谱 GLM、可选本机 Grok Bridge、Kimi（可配 Key 试用）、Mock（只验证流程）。
 - **治理门禁**：对过短长文、明显人员编制承诺、内部编号泄漏等做拦截或提示。不能替代审稿。
 - **本机凭证**：API Key 写入 Windows 凭证管理器或环境变量，不进 Git，不进普通配置文件。
+
+### R2 更新
+
+- Adaptive Section Count：章节数量随需求包调整，而不是写死固定章数。
+- Generation Batch：相近章节可一次调用生成，减少无意义拆分。
+- Fast / Balanced / Deep：三种生成模式；Fast 保持完整方案覆盖，但限制低价值重复修复。
+- 并发生成与 Stage-aware Reasoning：按阶段使用不同推理强度。
+- Checkpoint / Resume：中断后可从已完成章节继续。
+- Fail-Soft Delivery 与 Artifact Preservation：有可打开的 Word 时，内容问题不再整篇报废。
+- Final Artifact QA：对成品 Word 再检查；格式类问题优先本地修复。
+- Needs Review 输出：可下载待复核版本，不等于生成失败。
+- Workflow 完整耗时与本机输出目录：页面可看总处理时间，并可打开输出文件夹。
+- Fast Mode Performance Governance：限制普通章节的 Provider 返工次数。
 
 ---
 
@@ -51,6 +64,7 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
                                           │
                                           ▼
                                Word / PPT ──► 人工终审
+                               （完成 / 有提示 / 待复核）
 ```
 
 界面运行在本机浏览器：`http://127.0.0.1:3050/`。本仓库是源码候选包，不包含真实运行记录、真实招标或个人密钥。
@@ -98,6 +112,7 @@ MMF **不会**在源码或示例里提供真实 Key。请使用你自己的账�
 |---|---|---|
 | 千问 / 万相 | `DASHSCOPE_API_KEY` | 国内云端。可与图片服务共用一把 Key |
 | Kimi / Moonshot | `MOONSHOT_API_KEY` | 可试用；长文表现仍在观察 |
+| 智谱 GLM | `ZHIPUAI_API_KEY` | 国内云端。占位符为 `YOUR_ZHIPU_API_KEY` |
 | Grok Imagine | `XAI_API_KEY` | 可选图片服务 |
 | Local Grok Bridge | 无 API Key 字段 | 依赖本机已安装并登录的 Grok CLI |
 
@@ -111,17 +126,32 @@ MMF **不会**在源码或示例里提供真实 Key。请使用你自己的账�
 
 ---
 
-## 当前限制
+## 生成结果状态
 
-- 必须人工终审，不能直接当盖章投标稿。
-- 三百页级正式技术标尚未充分验证。
-- 不同引擎的篇幅、写法、速度、费用不一致。
-- 扫描件、复杂表格、多附件仍可能识别不全。
-- WPS 分页兼容性未作为已通过项。
-- 人员编制、SLA、收费、责任边界必须人确认。
-- 选用千问或 Kimi 时，生成提示会发到对应云端，不是完全离线写作。
-- PPT 观感需要人看，不能只看“能导出”。
-- 本版本不是 commercial ready，也不是 fully automated bidding。
+| 状态 | 含义 |
+|---|---|
+| **COMPLETED_CLEAN** | 方案生成完成，并通过当前自动检查。 |
+| **COMPLETED_WITH_WARNINGS** | 方案可用，但存在少量建议复核内容。 |
+| **NEEDS_REVIEW** | 方案已经生成并可下载，系统识别出若干内容建议人工审核。**这不是生成失败。** |
+| **TECHNICAL_FAILED** | 只有真正无法形成有效文件时使用。 |
+
+请不要把 Needs Review 当成整单失败。下载后仍须人工确认事实、人员履历、项目数据、服务承诺、合同条款以及法律与安全事项。
+
+MMF 定位为 **AI 辅助生成初稿 + 人工最终审核**。不得用于无人审核的自动投标。
+
+---
+
+## 当前限制（Alpha）
+
+1. 不同 Provider 输出质量存在明显差异。
+2. Fast 模式优先响应效率，最终内容仍可能需要人工调整。
+3. 自动 QA 不能替代人工专业审查。
+4. 未确认的项目事实、人员履历和量化指标可能被标记为 Needs Review。
+5. 复杂长文生成时间受 Provider、网络、项目复杂度和修复次数影响。
+6. 当前主要面向 Windows 本地环境。
+7. PPT / Word 兼容性仍需结合实际 Office / WPS 环境验证。
+
+以上是 Alpha 阶段已知限制，不是「已经可以无人值守投标」。本版本也不是 commercial ready。
 
 ---
 

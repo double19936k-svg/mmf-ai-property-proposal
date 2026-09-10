@@ -66,6 +66,30 @@
       "test_mode": false
     },
     {
+      "provider_name": "glm_zhipu",
+      "display_name": "智谱 GLM",
+      "provider_type": "openai_compatible",
+      "enabled": true,
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "endpoint_alias": "zhipu_bigmodel_china",
+      "api_key_env": "ZHIPUAI_API_KEY",
+      "credential_ref": "property_ai/glm_zhipu",
+      "model": "glm-4.7",
+      "reasoning_mode": "reasoning_effort_low",
+      "timeout": 900,
+      "health_timeout": 20,
+      "temperature": 0.6,
+      "extra_options": {
+        "reasoning_effort": "low",
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "billing_note": "使用智谱开放平台账号。API Key 在 open.bigmodel.cn 创建，国内接口为 https://open.bigmodel.cn/api/paas/v4 。默认模型 glm-4.7，可在设置中改为 glm-5 或 glm-5.3。",
+      "qualification_status": "verified",
+      "test_mode": false
+    },
+    {
       "provider_name": "qwen_image",
       "display_name": "千问万相（AI图片）",
       "provider_type": "image_generation",

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
-from governance.artifact_qa import evaluate_artifact
+from governance.artifact_qa import evaluate_artifact, flatten_structured_text
 from governance.longform_qa import evaluate_longform_depth
 from planning.canonical import (
     build_canonical_project_brief,
@@ -16,8 +17,9 @@ from planning.canonical import (
 )
 from planning.planner import PlanningError, build_planning_bundle, now_iso, write_json
 from providers.capability import resolve_profile
-
-from .factory import LongformGenerationFactory, content_units, read_json, visible_text
+from .eta import estimate_runtime
+from .factory import LongformGenerationFactory, content_units, keyword_coverage, read_json, visible_text
+from .reasoning import normalize_speed_profile, policy_reasoning_for_stage
 
 
 PLAN_FILES = {
@@ -74,20 +76,25 @@ def fragment_to_section(fragment: dict[str, Any], fallback_title: str) -> dict[s
     bullets: list[str] = []
     for block in fragment.get("body_blocks") or []:
         if not isinstance(block, dict):
-            if block:
-                paragraphs.append(str(block))
+            paragraphs.extend(flatten_structured_text(block))
             continue
         kind = str(block.get("type") or "")
-        content = block.get("content") or block.get("text") or ""
+        content = block.get("content")
+        if content is None or content == "":
+            content = block.get("text") or ""
         items = block.get("items") or block.get("points") or []
         if kind in {"bullet_group", "numbered_steps"}:
-            bullets.extend(str(item) for item in items if item)
-            if content:
-                paragraphs.append(str(content))
-        elif kind == "subheading" and content:
-            paragraphs.append(str(content))
-        elif content:
-            paragraphs.append(str(content))
+            nested = flatten_structured_text(items) or flatten_structured_text(content)
+            bullets.extend(nested)
+            if items and content is not None and content != "" and content is not items:
+                extra = flatten_structured_text(content)
+                for line in extra:
+                    if line not in bullets:
+                        paragraphs.append(line)
+        elif kind == "subheading":
+            paragraphs.extend(flatten_structured_text(content))
+        else:
+            paragraphs.extend(flatten_structured_text(content))
     table = None
     for item in fragment.get("tables") or []:
         if isinstance(item, dict) and item.get("columns") and item.get("rows"):
@@ -114,8 +121,8 @@ def assemble_word_artifact(brief: dict[str, Any], word_plan: dict[str, Any], fra
         "title": f"{brief.get('project_name', '本项目')}｜{brief.get('scenario', '物业服务方案')}",
         "subtitle": brief.get("project_type") or "物业服务方案",
         "lead": [
-            f"本方案按统一Document Plan分章节编制，项目为{brief.get('project_name', '本项目')}。",
-            "结构、需求覆盖和篇幅由MMF规划层控制，模型仅撰写已确定的Section。",
+            f"本方案结合{brief.get('project_name', '本项目')}的项目条件、服务范围及已确认需求编制。",
+            "方案围绕服务组织、专业运营、风险响应与质量改进展开，具体实施安排以双方确认的项目要求为依据。",
         ],
         "sections": sections,
     }
@@ -152,15 +159,23 @@ def generate_longform(
     section_ids: list[str] | None = None,
     task_mode: str | None = None,
     require_section_min: bool | None = None,
+    speed_profile: str | None = None,
+    max_parallelism: int | None = None,
+    history_path: Any = None,
 ) -> dict[str, Any]:
     pack = load_requirement_pack(run_dir)
     mode = resolve_task_mode(brief, task_mode)
+    speed = normalize_speed_profile(speed_profile or brief.get("speed_profile") or "balanced")
+    wall_started = time.monotonic()
+    planning_started = wall_started
     knowledge = _normalize_knowledge(selection, selected_ids)
     existing_plan = run_dir / "01_word_document_plan.json"
     have_all_plan = existing_plan.is_file() and all((run_dir / name).is_file() for name in PLAN_FILES.values())
     if have_all_plan:
         bundle = {key: json.loads((run_dir / name).read_text(encoding="utf-8-sig")) for key, name in PLAN_FILES.items()}
         bundle.setdefault("validation", {"status": "PASS", "mode": "reused"})
+        if (run_dir / "adaptive_section_decision.json").is_file():
+            bundle["adaptive_section_decision"] = json.loads((run_dir / "adaptive_section_decision.json").read_text(encoding="utf-8-sig"))
         analysis = json.loads((run_dir / "canonical_tender_analysis.json").read_text(encoding="utf-8-sig")) if (run_dir / "canonical_tender_analysis.json").is_file() else build_canonical_tender_analysis(pack, brief)
         requirement_map = json.loads((run_dir / "canonical_requirement_map.json").read_text(encoding="utf-8-sig")) if (run_dir / "canonical_requirement_map.json").is_file() else build_canonical_requirement_map(pack, bundle["requirement_matrix"])
         project_brief = json.loads((run_dir / "canonical_project_brief.json").read_text(encoding="utf-8-sig")) if (run_dir / "canonical_project_brief.json").is_file() else build_canonical_project_brief(pack, brief, analysis)
@@ -169,6 +184,8 @@ def generate_longform(
         if bundle["validation"]["status"] != "PASS":
             raise PlanningError("生产规划门禁未通过：" + json.dumps(bundle["validation"].get("checks"), ensure_ascii=False))
         write_plan_artifacts(run_dir, bundle)
+        if bundle.get("adaptive_section_decision"):
+            write_json(run_dir / "adaptive_section_decision.json", bundle["adaptive_section_decision"])
         analysis = build_canonical_tender_analysis(pack, brief)
         requirement_map = build_canonical_requirement_map(pack, bundle["requirement_matrix"])
         project_brief = build_canonical_project_brief(pack, brief, analysis)
@@ -188,9 +205,16 @@ def generate_longform(
             "ppt_plan": bundle["ppt_plan"],
             "dependency_map": bundle["dependency_map"],
             "knowledge_selection": knowledge,
-            "require_section_min": require_section_min if require_section_min is not None else (mode == "full_longform" or bool(chosen and len(chosen) <= 6)),
+            # FAST_MODE may change reasoning/latency only. Full proposals keep the same
+            # section minimum and content budget as balanced/deep.
+            "require_section_min": True if mode == "full_longform" else (require_section_min if require_section_min is not None else bool(chosen and len(chosen) <= 6)),
+            "speed_profile": speed,
+            "max_parallelism": max_parallelism if max_parallelism is not None else brief.get("max_parallelism"),
+            "history_path": history_path or (run_dir.parent.parent / "runtime" / "latency_history.jsonl"),
         },
     )
+    planning_seconds = round(time.monotonic() - planning_started, 3)
+    generation_started = time.monotonic()
     medium = str(brief.get("medium") or "WORD").upper()
     word = {"status": "SKIPPED"}
     ppt = {"status": "SKIPPED"}
@@ -215,10 +239,19 @@ def generate_longform(
         fragments = {path.parent.name: json.loads(path.read_text(encoding="utf-8-sig")) for path in (run_dir / "longform" / "ppt" / "slides").glob("*/payload.json")}
         gates = []
     else:
-        word = factory.generate_word(chosen)
+        try:
+            word = factory.generate_word(chosen)
+        except Exception:
+            factory.performance["phase"] = "generation"
+            factory.performance["generation_seconds"] = round(time.monotonic() - generation_started, 3)
+            factory.performance["provider_wait_seconds"] = round(float(factory.provider_wait_seconds or 0), 3)
+            factory.performance["token_accounting"] = factory.token_accountant.summary()
+            raise
         fragments = collect_fragments(run_dir)
         gates = collect_gates(run_dir)
         artifact = assemble_word_artifact(brief, bundle["word_plan"], fragments)
+    generation_seconds = round(time.monotonic() - generation_started, 3)
+    qa_started = time.monotonic()
     total_chars = len(visible_text(artifact))
     depth = evaluate_longform_depth(
         task_mode=mode,
@@ -228,6 +261,12 @@ def generate_longform(
         fragments=fragments,
         gates=gates,
         total_effective_chars=total_chars,
+    )
+    coverage_gate = evaluate_requirement_coverage_regression(
+        bundle.get("requirement_matrix") or {},
+        fragments,
+        expected_section_ids=chosen if medium != "PPT" else None,
+        task_mode=mode,
     )
     generated = {
         "artifact": artifact,
@@ -239,9 +278,18 @@ def generate_longform(
             "LONGFORM_ORCHESTRATOR": "ACTIVE",
             "ONE_SHOT_FULL_DOCUMENT_GENERATION": False,
             "SECTION_LEVEL_GENERATION": True,
+            "GENERATION_BATCH_LAYER": True,
             "task_mode": mode,
+            "speed_profile": speed,
             "word_summary": word,
             "capability": factory.capability,
+            "QUALITY_REGRESSION_GATE": coverage_gate.get("status"),
+            "planning": {
+                "execution": "local_deterministic",
+                "provider_invoked": False,
+                "reasoning_policy": policy_reasoning_for_stage(speed, "planning"),
+                "note": "Document Plan is built locally; high reasoning is configured policy, not an actual provider call.",
+            },
         },
     }
     write_json(run_dir / "generation_raw.json", generated)
@@ -259,9 +307,37 @@ def generate_longform(
         "CANONICAL_PLAN_PROVIDER_INDEPENDENT": "PASS",
         "PROVIDER_EFFECTIVE_SETTINGS_AUDIT": "PASS" if factory.capability else "FAIL",
         "LONGFORM_DEPTH_GATE": depth["status"],
+        "QUALITY_REGRESSION_GATE": coverage_gate.get("status"),
+        "GENERATION_BATCH_LAYER": True,
         "task_mode": mode,
+        "speed_profile": speed,
+        "logical_section_count": (word or {}).get("logical_section_count"),
+        "generation_batch_count": (word or {}).get("generation_batch_count"),
+        "provider_call_count": factory.provider_call_count,
         "updated_at": now_iso(),
     })
+    qa_seconds = round(time.monotonic() - qa_started, 3)
+    wall_elapsed = round(time.monotonic() - wall_started, 3)
+    performance = dict(factory.performance or {})
+    performance.update({
+        "planning_seconds": planning_seconds,
+        "generation_seconds": performance.get("generation_seconds") if performance.get("generation_seconds") is not None else generation_seconds,
+        "generation_wall_seconds": generation_seconds,
+        "provider_wait_seconds": round(float(performance.get("provider_wait_seconds") or factory.provider_wait_seconds or 0), 3),
+        "qa_seconds": qa_seconds,
+        "wall_elapsed_seconds": wall_elapsed,
+        "repair_reasoning": performance.get("repair_reasoning") or "not_invoked",
+        "token_accounting": performance.get("token_accounting") or factory.token_accountant.summary(),
+    })
+    factory.performance = performance
+    eta = estimate_runtime(
+        provider=provider_name,
+        model=str(((factory.capability.get("effective_settings") or {}).get("model") or "")),
+        mode=speed,
+        stage="draft",
+        history_path=factory.history_path,
+        section_count=(word or {}).get("logical_section_count"),
+    )
     return {
         "generated": generated,
         "bundle": bundle,
@@ -269,7 +345,69 @@ def generate_longform(
         "depth": depth,
         "capability": factory.capability,
         "task_mode": mode,
+        "speed_profile": speed,
+        "adaptive_section_decision": bundle.get("adaptive_section_decision"),
+        "quality_regression": coverage_gate,
+        "performance": performance,
+        "eta": eta,
         "total_effective_chars": total_chars,
         "content_units": content_units(visible_text(artifact)),
-        "profile": resolve_profile(provider_name, getattr(provider, "config", {})),
+        "profile": resolve_profile(provider_name, getattr(provider, "config", {}), speed_profile=speed, stage="draft"),
+        "planning": generated["longform"]["planning"],
+    }
+
+
+def evaluate_requirement_coverage_regression(
+    matrix: dict[str, Any],
+    fragments: dict[str, dict[str, Any]],
+    *,
+    expected_section_ids: list[str] | None = None,
+    task_mode: str | None = None,
+) -> dict[str, Any]:
+    generated_ids = set(fragments)
+    rows = [row for row in matrix.get("matrix") or [] if row.get("coverage_status") == "MAPPED"]
+    scoped = []
+    for row in rows:
+        if row.get("mandatory_level") != "MUST" and not row.get("scoring_item_id"):
+            continue
+        owners = [row.get("primary_section_id"), *(row.get("secondary_section_ids") or [])]
+        owners = [sid for sid in owners if sid]
+        if expected_section_ids is not None:
+            if not any(sid in set(expected_section_ids) for sid in owners):
+                continue
+        scoped.append(row)
+    if not scoped:
+        if any(row.get("mandatory_level") == "MUST" for row in rows) and not generated_ids:
+            missing = [row.get("requirement_id") for row in rows if row.get("mandatory_level") == "MUST"]
+            return {"status": "FAIL", "planned_must": len(missing), "covered_must": 0, "missing": missing, "QUALITY_REGRESSION_GATE": "FAIL"}
+        return {"status": "PASS", "planned_must": 0, "covered_must": 0, "missing": [], "QUALITY_REGRESSION_GATE": "PASS"}
+    missing = []
+    covered = 0
+    for row in scoped:
+        owners = [sid for sid in [row.get("primary_section_id"), *(row.get("secondary_section_ids") or [])] if sid]
+        present = [sid for sid in owners if sid in generated_ids]
+        if not present:
+            missing.append(row.get("requirement_id"))
+            continue
+        req_text = str(row.get("requirement_text") or "")
+        text = "\n".join(visible_text(fragments[sid]) for sid in present)
+        if not req_text:
+            covered += 1
+            continue
+        if keyword_coverage(req_text, text) == "COVERED":
+            covered += 1
+            continue
+        all_text = "\n".join(visible_text(frag) for frag in fragments.values())
+        if keyword_coverage(req_text, all_text) == "COVERED":
+            covered += 1
+        else:
+            missing.append(row.get("requirement_id"))
+    status = "PASS" if not missing else "FAIL"
+    return {
+        "status": status,
+        "planned_must": len(scoped),
+        "covered_must": covered,
+        "missing": missing,
+        "QUALITY_REGRESSION_GATE": status,
+        "task_mode": task_mode,
     }

@@ -12,7 +12,7 @@ SEMANTIC_PATTERNS = {
     "C2": [r"固定岗|专人持续值守|定点值守|常设岗亭|新增岗位|配备\d+人"],
     "C3": [r"采用外包模式|采用外委|外委作业|专业供方承担|委托第三方|采用自营"],
     "C4": [r"封闭管理|封闭式管理|封闭管控|门禁卡|外来人员禁止进入|访客证"],
-    "C5": [r"项目经理批示|由项目经理审批|甲方批准|负责审批"],
+    "C5": [r"项目经理批示|由项目经理审批|(?<!报)(?<!经)甲方批准|负责审批"],
     "C6": [r"必须.{0,12}(审批|上报|复盘)"],
     "C7": [r"费用与.{0,6}(结算|付款)挂钩|考核与付款挂钩|收费标准为|收费单价为"],
     "C8": [r"24\s*小时|全天候|昼夜不间断|7\s*[×xX*]\s*24|连续值守"],
@@ -20,7 +20,19 @@ SEMANTIC_PATTERNS = {
     "C10": [r"依据公司制度|按现行政策|统一制度规定"],
 }
 
-RECOMMENDATION_PREFIX = re.compile(r"(?:建议|可考虑|可根据|结合.{0,12}条件|在.{0,16}情况下|如采用|若采用|是否采用|可按|如经确认|经确认后|确认后|与招标人确认|待确认)")
+RECOMMENDATION_PREFIX = re.compile(r"(?:建议|可考虑|可根据|结合.{0,12}条件|在.{0,16}情况下|如采用|若采用|是否采用|可按|如经确认|经确认后|确认后|与招标人确认|待确认|待澄清|尚未完全确认|尚未锁定|尚未最终|如项目已配置|如已配置)")
+CONDITIONAL_TOKENS = (
+    "如采用", "若采用", "在确认", "可根据", "如经确认", "经确认后", "确认后",
+    "招标人确认", "待确认", "尚未确认", "尚未完全确认", "待澄清", "尚未锁定",
+    "尚未最终", "条件性", "动态调整", "如项目已配置", "如已配置", "按现场已确认",
+)
+UNSUPPORTED_COMPLETION = re.compile(
+    r"(?:所有|全部)[^。；\n]{0,32}(?:已经|均已|已)(?:提交|具备|完成|建立|整理成册|准备就绪)|"
+    r"(?:已经|均已)(?:提交|具备|完成|整理成册|准备就绪)|"
+    r"作为本方案附件提交",
+    re.I,
+)
+ABSOLUTE_PERFORMANCE = re.compile(r"(?:确保[^。；\n]{0,40})?(?:零故障|100%无故障|绝不发生|完全杜绝|永久确保)", re.I)
 
 
 def _walk_strings(value: Any, path: str = "artifact") -> list[tuple[str, str]]:
@@ -56,8 +68,9 @@ def evaluate_commitments(brief: dict[str, Any], contracts: list[dict[str, Any]],
                 for match in re.finditer(pattern, text, re.I):
                     phrase = match.group(0)
                     supported = _brief_supports(brief_text, phrase)
-                    recommendation = bool(RECOMMENDATION_PREFIX.search(text[max(0, match.start()-24):match.end()+12]))
-                    conditional = recommendation or any(token and token in text for token in ("如采用", "若采用", "在确认", "可根据", "如经确认", "经确认后", "确认后", "招标人确认", "待确认", "尚未确认"))
+                    window = text[max(0, match.start() - 36):match.end() + 36]
+                    recommendation = bool(RECOMMENDATION_PREFIX.search(window))
+                    conditional = recommendation or any(token in text or token in window for token in CONDITIONAL_TOKENS)
                     provenance = "PROJECT_FACT" if supported else ("CONDITIONAL_KU" if conditional else "UNSUPPORTED")
                     language = "FACT" if supported else ("CONDITIONAL_METHOD" if conditional else "COMMITMENT")
                     row = {"claim_type": claim_type, "text": phrase, "path": path, "provenance": provenance, "language_level": language}
@@ -67,6 +80,21 @@ def evaluate_commitments(brief: dict[str, Any], contracts: list[dict[str, Any]],
                         if claim_type in {"C2", "C3", "C4", "C7", "C8"}:
                             repair = "RP-CONDITIONALIZE"
                         violations.append({**row, "severity": "BLOCK", "repair_action": repair, "reason": "Plausibility is not evidence; current project support is absent."})
+        for claim_type, pattern, repair in (
+            ("UNSUPPORTED_COMPLETION_CLAIM", UNSUPPORTED_COMPLETION, "RP-FUTURE-STATE"),
+            ("ABSOLUTE_PERFORMANCE_COMMITMENT", ABSOLUTE_PERFORMANCE, "RP-DOWNGRADE-ABSOLUTE"),
+        ):
+            for match in pattern.finditer(text):
+                phrase = match.group(0)
+                window = text[max(0, match.start() - 36):match.end() + 36]
+                supported = _brief_supports(brief_text, phrase)
+                conditional = bool(RECOMMENDATION_PREFIX.search(window)) or any(token in window for token in CONDITIONAL_TOKENS)
+                provenance = "PROJECT_FACT" if supported else ("CONDITIONAL_KU" if conditional else "UNSUPPORTED")
+                language = "FACT" if supported else ("CONDITIONAL_METHOD" if conditional else "COMMITMENT")
+                row = {"claim_type": claim_type, "text": phrase, "path": path, "provenance": provenance, "language_level": language}
+                claims.append(row)
+                if not supported and not conditional:
+                    violations.append({**row, "severity": "BLOCK", "repair_action": repair, "reason": "A completed or absolute outcome requires explicit current-project evidence."})
     unique = []
     seen = set()
     for row in violations:
@@ -100,9 +128,10 @@ def _repair_text(text: str) -> str:
         "响应时限": "响应安排",
         "到场时限": "到场安排",
     }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-    return text
+    from governance.text_sanitize import apply_replacements_idempotent, collapse_repeated_conditionals
+    text = apply_replacements_idempotent(text, replacements)
+    text = re.sub(r"确保([^。；\n]{0,40})零故障运行", r"保障\1稳定运行并降低故障发生概率", text)
+    return collapse_repeated_conditionals(text)
 
 
 def apply_local_repairs(generated: dict[str, Any]) -> dict[str, Any]:
