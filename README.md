@@ -10,6 +10,16 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 
 当前定位：**AI 辅助生成初稿 + 人工最终审核。**  
 不是全自动投标，也不能替代专业判断。
+<img width="1321" height="905" alt="image" src="https://github.com/user-attachments/assets/9c880bf7-120d-4e40-a465-03eab77972a9" />  <img width="1400" height="875" alt="image" src="https://github.com/user-attachments/assets/45fd58bb-73c5-4eee-8c59-c95a0de59298" />
+<img width="1385" height="875" alt="image" src="https://github.com/user-attachments/assets/6d5c82af-bdde-4a0d-bc47-81bc6679340b" />  <img width="1385" height="888" alt="image" src="https://github.com/user-attachments/assets/5f888640-e6c5-40e5-b874-b2c7e09a97d2" />
+
+---
+
+## 设计思路
+- MMF 来源于真实的物业服务方案与投标技术文件编制场景，而不是一个单纯的大模型能力演示。
+- 在长期方案编制过程中，比较突出的问题并不是“不会写”，而是知识难复用、需求容易遗漏、长文质量难稳定：历史方案、制度和案例分散在大量文件中；不同项目需要重新梳理招标要求和方案结构；而直接使用通用大模型一次性生成长文，又很难稳定控制章节结构、内容深度、事实边界和投标风险。
+- 因此 MMF 没有把产品设计成“把所有资料塞进 RAG 后一键生成全文”，而是采用 先梳理需求与知识 → 再规划文档结构 → 分章节受控生成 → 自动质量检查 → 人工最终审核 的工作流。
+- 本地应用形态也是这一思路的一部分：项目资料、运行记录和生成文件优先在本地管理，同时通过 Provider Adapter 接入不同 AI 模型。AI 的角色是提高检索、组织和初稿生成效率，而不是替代物业专业判断和最终责任。
 
 ---
 
@@ -95,7 +105,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\launch_mmf.ps1
 ```
 
-不要把 `runs/`、`logs/`、`output/`、`.env`、`config/providers.local.json` 提交到 Git。
 
 ---
 
@@ -152,6 +161,18 @@ MMF 定位为 **AI 辅助生成初稿 + 人工最终审核**。不得用于无�
 7. PPT / Word 兼容性仍需结合实际 Office / WPS 环境验证。
 
 以上是 Alpha 阶段已知限制，不是「已经可以无人值守投标」。本版本也不是 commercial ready。
+
+---
+
+## 内部测试参考
+以下数据来自当前 Alpha 版本在少量真实历史项目上的内部试跑，仅用于说明工作流效率，不构成产品性能承诺。实际结果会受到招标文件复杂度、方案深度、所选模型及人工审核标准影响。
+| 测试场景 | 传统人工经验基线 | MMF 初稿阶段 | 后续工作 |
+|---|---:|---:|---|
+| 约70页级物业服务方案 Word | 约6–8小时完成初稿 | 约1–1.5小时生成初稿 | 仍需人工逐章审核、调整 |
+| 约40页物业方案 PPT | 约4–6小时完成初稿 | 约0.5–1小时生成初稿 | 版式、视觉和表达仍需人工判断 |
+| 招标需求梳理与响应框架 | 约2–3小时 | 约15–30分钟形成初步结构 | 关键条款仍需人工确认 |
+
+MMF 当前更关注的是降低“从零开始”的工作量，而不是追求无人参与的一键交付。
 
 ---
 
