@@ -6,12 +6,13 @@
 状态：**Initial Deployable Alpha · R2 Stability & Performance Release**  
 不是 Stable、Production Ready 或 Commercial Ready，不能替代人工终审。
 
-MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与 Word/PPT 输出串成一条本机工作流。浏览器只是操作界面；服务默认只监听 `127.0.0.1`，不主动开放到局域网或公网。
+MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与 Word/PPT 输出串成一条本机工作流。当前界面在本机窗口中操作；服务默认只监听 `127.0.0.1`，不主动开放到局域网或公网。
 
 当前定位：**AI 辅助生成初稿 + 人工最终审核。**  
 不是全自动投标，也不能替代专业判断。
-<img width="1321" height="905" alt="image" src="https://github.com/user-attachments/assets/9c880bf7-120d-4e40-a465-03eab77972a9" />  <img width="1400" height="875" alt="image" src="https://github.com/user-attachments/assets/45fd58bb-73c5-4eee-8c59-c95a0de59298" />
-<img width="1385" height="875" alt="image" src="https://github.com/user-attachments/assets/6d5c82af-bdde-4a0d-bc47-81bc6679340b" />  <img width="1385" height="888" alt="image" src="https://github.com/user-attachments/assets/5f888640-e6c5-40e5-b874-b2c7e09a97d2" />
+
+<img alt="新建物业方案" src="docs/readme/new-proposal.png" width="720"> <img alt="从招标文件创建" src="docs/readme/tender.png" width="720">
+<img alt="历史生成记录" src="docs/readme/history.png" width="720"> <img alt="首次运行配置" src="docs/readme/setup.png" width="720">
 
 ---
 
@@ -29,7 +30,7 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 |---|---|
 | 版本 | `0.1.1-alpha` |
 | 阶段 | 初始可部署 Alpha（R2 稳定性与性能） |
-| 基线 | 长文按章生成、检查点续写、Word/PPT 渲染、Fail-Soft 交付、本机安装启动 |
+| 基线 | 长文按章生成、检查点续写、Word/PPT 渲染、账户登录、Fail-Soft 交付、本机窗口 |
 | 不是 | Stable / Production Ready / Commercial Ready / fully automated bidding / 无需人工审核 |
 
 已验证过的能力以本仓库源码和文档为准。一次样例的页数或观感，不能推广成每个项目都会自动达到同样质量。
@@ -41,8 +42,8 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 - **招标 / 需求导入**：PDF、Word、文本等常见格式先在本机解析，再进入需求确认。
 - **方案结构**：完整物业服务方案按既定章节计划生成，而不是让模型自己决定写几章。
 - **长文编排**：按章调用 AI，章节完成后留检查点，中断后可从当前章继续。
-- **Word / PPT 输出**：Word 为默认交付；PPT 需本机安装 Node。
-- **多引擎**：千问（云端 API Key）、智谱 GLM、可选本机 Grok Bridge、Kimi（可配 Key 试用）、Mock（只验证流程）。
+- **Word / PPT 输出**：Word 为默认交付。Word 规模为常规 50～70 页、详细 120～150 页、大型 200～300 页。PPT 正文按常规 15～20 页、详细 30～40 页、大型 50～70 页，不按 Word 页数换算。PPT 需要本机 Node。
+- **多引擎**：Qoder CN 账户、ZCode 国内账户、Cursor 账户、千问、智谱 GLM、可选本机 Grok Bridge、Kimi，以及只验证流程的 Mock。账户登录不把密钥写进仓库。
 - **治理门禁**：对过短长文、明显人员编制承诺、内部编号泄漏等做拦截或提示。不能替代审稿。
 - **本机凭证**：API Key 写入 Windows 凭证管理器或环境变量，不进 Git，不进普通配置文件。
 
@@ -77,7 +78,7 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
                                （完成 / 有提示 / 待复核）
 ```
 
-界面运行在本机浏览器：`http://127.0.0.1:3050/`。本仓库是源码候选包，不包含真实运行记录、真实招标或个人密钥。
+界面在本机窗口中使用。本仓库是源码，不包含真实运行记录、真实招标、登录账户或个人密钥。
 
 ---
 
@@ -94,9 +95,9 @@ MMF 把招标或项目资料、需求梳理、可选 AI 引擎、章节规划与
 1. 复制本仓库到本机任意可写目录（不要把密钥写进仓库）。
 2. 双击 `首次安装.cmd`，等待提示安装完成。安装会在 `runtime/python` 创建隔离虚拟环境。
 3. 之后可双击 `启动MMF.cmd`。
-4. 若浏览器未自动打开，访问 `http://127.0.0.1:3050/`。
+4. 源码由 `启动MMF.cmd` 打开本机页面。桌面客户端则双击 `MMF-010.exe`，界面留在程序窗口里。
 5. 首次打开时完成「首次配置」：选择输出目录、默认引擎、默认 Word 或 PPT。
-6. 到「AI引擎设置」填写你自己的 API Key，保存后点「测试连接」。
+6. 到「AI引擎设置」连接 Qoder、ZCode 或 Cursor 账户，或填写你自己的 API Key，保存后点「测试连接」。
 
 命令行等价方式：
 
@@ -110,7 +111,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\launch_mmf.ps1
 
 ## Provider 配置方法
 
-MMF **不会**在源码或示例里提供真实 Key。请使用你自己的账号。
+MMF **不会**在源码或示例里提供真实 Key 或已登录账户。请使用你自己的账号。Qoder CN、ZCode 国内账户和 Cursor 在「AI引擎设置」里登录；API 引擎仍使用你自己的 Key。
 
 1. 复制 `.env.example` 为 `.env`（可选），或直接在页面「AI引擎设置」中填写。
 2. 示例值只能是占位符，例如 `YOUR_QWEN_API_KEY`。
