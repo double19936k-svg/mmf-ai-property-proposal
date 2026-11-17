@@ -64,7 +64,7 @@
 
 已重写本地历史，分两次完成：先替换绝对路径，再去掉残留用户名、项目目录名和三个临时文件。
 
-本地 tag `v0.1.1-alpha` 仍在，指向重写后的同一条合并提交，提交说明不变。本地标签提交是 `495e5f6b05dd16b24ee3103f65068ebee9dcefd8`。
+本地 tag `v0.1.1-alpha` 仍在，指向重写后的同一条合并提交，提交说明不变。标签对象是 `495e5f6b05dd16b24ee3103f65068ebee9dcefd8`，对应提交是 `f8a88f00a2d46e9bc7105ac2dd3dcc15712ea06b`。
 
 备份是重写前的完整 bundle，文件名为 `mmf-ai-property-proposal-pre-cleanup-20261117.bundle`，约 4.1 MB，放在本机「正式发布版」目录。报告不写该目录的绝对路径。
 
@@ -114,28 +114,23 @@ API Key 默认进入 Windows 凭证管理器。文档不再说密钥绝对不会
 
 ## 9. 尚未解决
 
-- GitHub 上的 main 和 tag 仍是重写前的历史，里面还有原来的本机路径。
-- 没有确认 GitHub Release 页面是否挂了附件。本机没有 `gh`，只读到了远程 tag。
 - `config/app.json` 默认端口 3050 与启动脚本 3042 并存。这是原有行为，本次未改代码。
 - 桌面客户端和压缩包不是这次清理后的源码重新构建的。
 
 ## 10. 能否冻结 v0.1.1-alpha
 
-本地仓库已经达到本次卫生要求，可以停止功能性开发。
+本地仓库和 GitHub 上的 main 都已换成清理后的历史，可以停止本阶段的功能性开发。
 
-GitHub 上的公开仓库还没有达到同一状态。在确认并完成下面的远程更新之前，不能把线上仓库视为已经脱敏的冻结版本。
+## 11. GitHub 同步
 
-## 11. 如需同步 GitHub
+远程是 `https://github.com/double19936k-svg/mmf-ai-property-proposal.git`。
 
-远程仍是 `https://github.com/double19936k-svg/mmf-ai-property-proposal.git`。
+2026-11-17 已确认后同步。同步前核对过 Release：名称仍是 `MMF v0.1.1-alpha (R2): Stability, Long-Form Orchestration & Fail-Soft Delivery`，目标是 `main`，附件数量为 0。随后用 `--force-with-lease` 更新了 main 和 tag `v0.1.1-alpha`。
 
-远程 tag `v0.1.1-alpha` 目前指向 `6a87db865979ff142299121df6020dd7eca47f3d`。本地清理后的内容提交是 `b7675f8a06fbc750996bc1fca6b53bbb0736f0b0`，本报告位于它之后。普通推送会被拒绝。
+同步完成时：
 
-确认后才需要执行：
+- main 为 `7e579e40d64a31b246a3a111cb3c0347a961e754`
+- tag 对象为 `495e5f6b05dd16b24ee3103f65068ebee9dcefd8`
+- tag 指向合并提交 `f8a88f00a2d46e9bc7105ac2dd3dcc15712ea06b`
 
-1. 先查看 GitHub Releases，确认移动 tag 不会弄丢已有附件。
-2. 强制更新 main。
-3. 强制更新 tag `v0.1.1-alpha`。
-4. 通知已有克隆重新获取。旧提交不会再与新历史衔接。
-
-本次没有执行这些远程操作。
+Release 页面还在，附件仍是 0。已经克隆过旧历史的副本需要重新获取，旧提交不会再与新历史衔接。
