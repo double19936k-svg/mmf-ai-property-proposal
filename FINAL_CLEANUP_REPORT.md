@@ -129,7 +129,7 @@ GitHub 上的公开仓库还没有达到同一状态。在确认并完成下面�
 
 远程仍是 `https://github.com/double19936k-svg/mmf-ai-property-proposal.git`。
 
-远程 tag `v0.1.1-alpha` 目前指向 `6a87db865979ff142299121df6020dd7eca47f3d`。本地 main 是 `b7675f8a06fbc750996bc1fca6b53bbb0736f0b0`。普通推送会被拒绝。
+远程 tag `v0.1.1-alpha` 目前指向 `6a87db865979ff142299121df6020dd7eca47f3d`。本地清理后的内容提交是 `b7675f8a06fbc750996bc1fca6b53bbb0736f0b0`，本报告位于它之后。普通推送会被拒绝。
 
 确认后才需要执行：
 
