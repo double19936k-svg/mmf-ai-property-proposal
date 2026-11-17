@@ -2,13 +2,13 @@
 
 记录日期：2026-11-17
 
-本次只做发布卫生。没有新增功能，没有改 Provider 实现，没有改生成流程，没有改 `LICENSE_PENDING.md`，没有重新打包，也没有向 GitHub 推送。
+本次只做发布卫生。没有新增功能，没有改 Provider 实现，没有改生成流程，没有改 `LICENSE_PENDING.md`，也没有重新打包。远程同步是在本地清理之后单独完成的，核验结果见第 11 节。
 
 ## 1. 修改摘要
 
 - Kimi 文档已与现有代码对齐：可以配置 API Key，并作为文字模型使用。
 - 当前 main 和全部本地历史中的开发者本机绝对路径已清除。
-- 本地历史已重写。重写前保存了完整 git bundle。远程仓库尚未更新。
+- 本地历史已重写。重写前保存了完整 git bundle。远程 main 和 tag 已同步，并以 `git ls-remote` 复核。
 - 构建清单保留 2026-09-13 的真实构建时间，并写明 2026-11-17 没有重新构建。
 - 用户说明区分了本机页面、云端模型、账户引擎和 Grok Bridge。
 
@@ -53,6 +53,8 @@
 - `C:\Users` 与 `Users/`：0 处
 - 上述单行临时文件：0 处
 
+2026-11-17 再次核验时，远程只有 `HEAD`、`refs/heads/main` 和 `refs/tags/v0.1.1-alpha`。对这组引用能到达的 17 个提交重新扫描后，用户名、开发者项目目录和 `C:\Users` 仍是 0 处。
+
 仍保留的不是个人路径：
 
 - `app/paths.py` 用目录名 `mmf006e_cleanroom` 识别外来配置
@@ -80,6 +82,8 @@
 新增 `public_record_date: 2026-11-17`，并明确 `packaged_dist_rebuilt_on_public_record_date: false`。原先的本机打包路径已删除，`last_packed_dist` 为 `null`。
 
 没有重新构建发布包，因此没有新的 SHA256。2026-11-17 只是文档和脱敏记录日期，不是新的二进制构建日期。已经放在「正式发布版」里的客户端和压缩包也没有按这次清理后的源码重打。
+
+`release_manifest.json` 不是当前发布清单。运行程序不读取它。`tools/assemble_release.py` 会在组装旧候选包时重写它，`tools/pack_portable.py` 只把它复制到打包目录。文件里的 `0.1.0-alpha`、`2026-09-04` 构建时间、`kimi_moonshot_preset_only` 和 “Kimi is not marked available” 都保留为当时的记录，没有改成 2026-11-17。文件开头已标明 `current_release_record: false`。
 
 `config/app.json` 的默认端口仍是 3050，服务代码未改。`启动MMF.cmd` 实际传入 3042，用户说明已按这个启动方式改写。
 
@@ -114,23 +118,28 @@ API Key 默认进入 Windows 凭证管理器。文档不再说密钥绝对不会
 
 ## 9. 尚未解决
 
+- GitHub 仍可通过已知 SHA 读到重写前的合并提交 `6a87db865979ff142299121df6020dd7eca47f3d`。它不在任何远程分支或标签上。该提交里的清洁部署测试仍有一处开发者项目目录名。没有第二次重写，也没有删除这个对象。
 - `config/app.json` 默认端口 3050 与启动脚本 3042 并存。这是原有行为，本次未改代码。
 - 桌面客户端和压缩包不是这次清理后的源码重新构建的。
 
 ## 10. 能否冻结 v0.1.1-alpha
 
-本地仓库和 GitHub 上的 main 都已换成清理后的历史，可以停止本阶段的功能性开发。
+远程 main、tag 和 Release 页面已经指向同一套清理后的历史。可以停止本阶段的功能性开发。
 
-## 11. GitHub 同步
+不能把“GitHub 上任何已知旧 SHA 都已消失”说成已经完成。`6a87db8` 仍然能按 SHA 访问，直到 GitHub 自己回收不可达对象。
 
-远程是 `https://github.com/double19936k-svg/mmf-ai-property-proposal.git`。
+## 11. 远程核验
 
-2026-11-17 已确认后同步。同步前核对过 Release：名称仍是 `MMF v0.1.1-alpha (R2): Stability, Long-Form Orchestration & Fail-Soft Delivery`，目标是 `main`，附件数量为 0。随后用 `--force-with-lease` 更新了 main 和 tag `v0.1.1-alpha`。
+核验命令是 `git ls-remote`，对照 `git rev-parse HEAD`、`git rev-parse v0.1.1-alpha` 和 `git show-ref --tags`。远程只有这几项：
 
-同步完成时：
+- `HEAD` 与 `refs/heads/main`：`210c8c417a4e7eeca5bc98459d729ae4699d276d`
+- tag 对象 `refs/tags/v0.1.1-alpha`：`495e5f6b05dd16b24ee3103f65068ebee9dcefd8`
+- tag 指向的提交：`f8a88f00a2d46e9bc7105ac2dd3dcc15712ea06b`
 
-- main 为 `7e579e40d64a31b246a3a111cb3c0347a961e754`
-- tag 对象为 `495e5f6b05dd16b24ee3103f65068ebee9dcefd8`
-- tag 指向合并提交 `f8a88f00a2d46e9bc7105ac2dd3dcc15712ea06b`
+本地与这三项一致。没有其他远程分支或标签。
 
-Release 页面还在，附件仍是 0。已经克隆过旧历史的副本需要重新获取，旧提交不会再与新历史衔接。
+Release 页面没有新建，也没有删除。名称仍是 `MMF v0.1.1-alpha (R2): Stability, Long-Form Orchestration & Fail-Soft Delivery`，发布记录目标是 `main`，附件数量为 0。页面上的提交号是 `f8a88f0`，不是 `6a87db8`。页面写着 main 比该 tag 超前 6 个提交，这 6 个提交是标签之后的产品更新和本次卫生记录，不是 tag 没有同步。
+
+因此不需要再移动 `v0.1.1-alpha`。源码包链接使用这个 tag，对应的是 `f8a88f0`。本修订提交只更新报告和历史清单标记，不改变 tag。
+
+备份文件 `mmf-ai-property-proposal-pre-cleanup-20261117.bundle` 仍在本机「正式发布版」目录，大小 4112106 字节。

@@ -1,4 +1,7 @@
 {
+  "record_role": "historical_internal_candidate",
+  "current_release_record": false,
+  "historical_note": "This file is the 2026-09-04 internal candidate snapshot. It is not the v0.1.1-alpha release record. Use build_manifest.json for the current release trace. The version, build time, provider list, status and notes below are the original record and were not backdated.",
   "app_name": "MMF Desktop / Local",
   "app_version": "0.1.0-alpha",
   "runtime_version": "MMF-Runtime packaged for 006E",
