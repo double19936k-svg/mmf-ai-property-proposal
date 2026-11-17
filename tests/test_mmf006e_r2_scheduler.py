@@ -36,7 +36,7 @@ def _pack() -> dict:
         "pack_id": "PACK-TEST-LONGFORM",
         "status": "ready_for_plan",
         "project_facts": {
-            "project_name": {"value": "示例滨海科技园"},
+            "project_name": {"value": "海信国际中心测试项目"},
             "location": {"value": "青岛市崂山区香港东路108号"},
             "gross_area": {"value": "252567平方米"},
         },
@@ -49,7 +49,7 @@ def _pack() -> dict:
 
 def _brief() -> dict:
     return {
-        "project_name": "示例滨海科技园",
+        "project_name": "海信国际中心测试项目",
         "project_type": "综合体",
         "scenario": "完整物业服务方案",
         "medium": "WORD",
@@ -131,7 +131,43 @@ class CountingProvider(MockProvider):
                 self.active -= 1
 
 
+class RealStyleProvider:
+    """模拟真实Provider：不提供Mock专用received_content_unit_ids计数器。"""
+
+    config = {"provider_name": "qwen_modelstudio", "provider_type": "openai_compatible", "enabled": True, "model": "qwen-test"}
+
+    def invoke_structured(self, request, task_dir):
+        return {"section_id": request.get("section_id"), "provider_metadata": {"finish_reason": "stop"}}
+
+
 class AdaptiveAndBatchTest(unittest.TestCase):
+    def test_successful_real_provider_response_acknowledges_sent_content_units(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            factory = LongformGenerationFactory(
+                run_root=Path(tmp),
+                provider=RealStyleProvider(),
+                provider_name="qwen_modelstudio",
+                inputs={
+                    "word_plan": {}, "requirement_matrix": {},
+                    "section_contracts": {"contracts": [], "process_contracts": []},
+                    "global_state": {"canonical_terms": {}, "client_requirements": [], "project_facts": {}, "staffing": {}, "service_hours": {}, "sla_kpi": {}, "service_scope": {}, "excluded_scope": [], "commitment_registry": [], "topic_ownership": [], "canonical_roles": {}},
+                    "ppt_plan": {}, "dependency_map": {"dependencies": []},
+                    "knowledge_selection": {"knowledge_usage_contracts": []},
+                    "require_section_min": False,
+                },
+            )
+            requested = ["CU-S05-03-01", "CU-S05-03-02"]
+            output, audit = factory._invoke({
+                "task_id": "provider-ack-test", "section_id": "S05-03",
+                "generation_mode": "longform_section", "attempt_mode": "generate",
+                "prompt": "test", "system_prompt": "test",
+                "content_unit_contracts": [{"content_unit_id": value} for value in requested],
+            }, Path(tmp) / "attempt")
+            self.assertIsNotNone(output)
+            self.assertEqual(factory.provider_acknowledged_content_unit_ids, requested)
+            self.assertEqual(audit["provider_received_content_unit_ids"], requested)
+            self.assertEqual(audit["provider_received_evidence"], "successful_structured_response")
+
     def test_adaptive_section_count_not_fixed_27(self):
         simple, simple_decision = build_adaptive_outline(_pack(), _brief())
         complex_outline, complex_decision = build_adaptive_outline(_complex_pack(), {**_brief(), "project_type": "产业园综合体", "scenario": "投标全套服务方案"})
@@ -309,7 +345,7 @@ class AdaptiveAndBatchTest(unittest.TestCase):
             first_section = decision["selected_section_ids"][0]
             self.assertTrue((run / "longform" / "word" / "sections" / first_section / "fragment.json").is_file())
             checkpoint = json.loads((run / "checkpoint" / "state.json").read_text(encoding="utf-8"))
-            self.assertEqual(checkpoint["schema_version"], "longform-checkpoint-v0.2")
+            self.assertEqual(checkpoint["schema_version"], "longform-checkpoint-v0.3-hierarchical")
             calls_before = provider.calls
             generate_longform(
                 run_dir=run,
@@ -329,24 +365,63 @@ class AdaptiveAndBatchTest(unittest.TestCase):
             self.assertIn("effective_settings", result["capability"])
 
     def test_partial_batch_resume_skips_pass_sections(self):
+        """续跑不得重发已完成 Section 里已落盘的 Content Unit。
+
+        旧契约（MMF-006E R2）：续跑时已完成 Section 目录下不得再出现任何 provider_attempt_*，
+        即"多一次调用就算错"。
+        新契约（MMF-007C Round 2 / P1-2）：续跑不得**重新生成**已落盘的 CU；但允许一次有界的
+        补缺/补深调用（`supplement_section / repair_section / continue_section`）。理由是第一轮
+        真实缺陷恰恰是"Repair 调用 0 次、Supplement 调用 0 次"——缺口被静默留在成品里。
+        所以这里量的是"有没有重复索取同一份内容"，而不是"有没有多一次调用"。
+        """
+        class RecordingProvider(CountingProvider):
+            def __init__(self):
+                super().__init__()
+                self.request_log: list[dict] = []
+
+            def invoke_structured(self, request, task_dir):
+                self.request_log.append({
+                    "attempt_mode": request.get("attempt_mode"),
+                    "section_id": str(request.get("section_id") or ""),
+                    "content_unit_ids": [str(unit.get("content_unit_id") or "")
+                                         for unit in (request.get("content_unit_contracts") or [])],
+                })
+                return super().invoke_structured(request, task_dir)
+
+        bounded_modes = {"supplement_section", "repair_section", "continue_section"}
         with tempfile.TemporaryDirectory() as tmp:
             run = _write_run(Path(tmp), _pack(), _brief(), _selection())
-            provider = CountingProvider()
+            provider = RecordingProvider()
             generate_longform(run_dir=run, provider=provider, provider_name="mock", brief=_brief(), selection=_selection(), selected_ids=["KU-0001"], section_ids=["S03-01", "S03-02"], task_mode="standard", require_section_min=False)
             s01 = run / "longform" / "word" / "sections" / "S03-01"
             self.assertTrue((s01 / "fragment.json").is_file())
             before_attempts = list(s01.glob("provider_attempt_*"))
+            persisted_s01 = {path.name[:-5] for path in (s01 / "cus").glob("*.json")}
+            self.assertTrue(persisted_s01, "第一节应当已落盘 Content Unit，否则这条契约无从验证")
             status = json.loads((run / "longform" / "word" / "sections" / "S03-02" / "status.json").read_text(encoding="utf-8"))
             status["status"] = "FAILED_SECTION"
             (run / "longform" / "word" / "sections" / "S03-02" / "status.json").write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
             for name in ("fragment.json", "provider_raw.json", "qa.json", "governance.json"):
                 (run / "longform" / "word" / "sections" / "S03-02" / name).unlink(missing_ok=True)
             before = provider.calls
+            log_before = len(provider.request_log)
             generate_longform(run_dir=run, provider=provider, provider_name="mock", brief=_brief(), selection=_selection(), selected_ids=["KU-0001"], section_ids=["S03-01", "S03-02"], task_mode="standard", require_section_min=False)
             self.assertGreater(provider.calls, before)
             self.assertTrue((s01 / "fragment.json").is_file())
             after_attempts = list(s01.glob("provider_attempt_*"))
-            self.assertEqual(len(before_attempts), len(after_attempts))
+            resumed = provider.request_log[log_before:]
+            touched_s01 = [row for row in resumed if row["section_id"] == "S03-01"]
+            for row in touched_s01:
+                self.assertFalse(set(row["content_unit_ids"]) & persisted_s01,
+                                 f"续跑把已落盘的 CU 又要点一遍：{row}")
+                self.assertIn(row["attempt_mode"], bounded_modes,
+                              f"已完成 Section 只接受有界补缺，不接受重新生成：{row}")
+            self.assertLessEqual(len(after_attempts) - len(before_attempts), 1,
+                                 "补缺必须是有界的一次，不能变成整节重跑")
+            self.assertEqual([row for row in touched_s01 if row["attempt_mode"] == "generate"], [],
+                             "已完成 Section 不得在续跑时被重新生成")
+            self.assertTrue(any(row["section_id"] == "S03-02" for row in resumed),
+                            "被判定失败的 Section 必须真的被重试")
 
 
 if __name__ == "__main__":

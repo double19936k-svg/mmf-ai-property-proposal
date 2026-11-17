@@ -13,9 +13,9 @@ from contextvars import ContextVar
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
-from .base import AIProvider, ProviderError, ProviderUnavailableError, normalize_generation, normalize_recommendation, parse_json_object, write_json
+from .base import AIProvider, ENVELOPE_PROTOCOL, ProviderError, ProviderUnavailableError, normalize_generation, normalize_recommendation, parse_provider_payload, write_json
 
 CURRENT_RUN_ID: ContextVar[str] = ContextVar("CURRENT_RUN_ID", default="")
 LAST_NETWORK_ROUTE: ContextVar[str] = ContextVar("LAST_NETWORK_ROUTE", default="unknown")
@@ -226,7 +226,20 @@ def _http_error_message(exc: BaseException, url: str, engine: str = "当前引�
         blob = f"{snippet} {exc}".lower()
         if exc.code in {404, 405}:
             if engine == "千问":
-                return "千问接口地址不正确。百炼/Model Studio 的API地址应类似 https://业务空间.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+                model_error = any(token in blob for token in (
+                    "model_not_found",
+                    "model not found",
+                    "model does not exist",
+                    "invalid model",
+                    "model_not_exist",
+                    "模型不存在",
+                    "模型未开通",
+                ))
+                if model_error:
+                    return "千问接口已连接，但当前模型名称不存在或尚未在该业务空间开通。请填写百炼模型列表中的完整模型ID"
+                if "maas.aliyuncs.com" in url.lower() and "/compatible-mode/v1" in url.lower():
+                    return f"千问业务空间地址格式正确，但服务返回 HTTP {exc.code}。请检查模型ID是否为该空间已开通的完整名称{('：' + snippet) if snippet else ''}"
+                return "千问接口路径不存在。百炼/Model Studio 的API地址应类似 https://业务空间.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
             return f"{engine}接口地址不正确，请到AI引擎设置检查API地址"
         if exc.code == 401 or any(token in blob for token in ("invalid api key", "incorrect api key", "invalid token", "unauthorized", "login required", "expired credential")):
             return f"{engine}密钥无效或没有当前模型权限，请到AI引擎设置重新填写并测试连接"
@@ -284,10 +297,32 @@ class OpenAICompatibleProvider(AIProvider):
         base = {"configured": configured, "credential_source": credential_source, "metadata": self.get_metadata()}
         if not configured:
             return {**base, "available": False, "status": "not_configured", "message": "未配置API地址、模型或密钥环境变量"}
-        request = urllib.request.Request(
-            self._base_url() + "/models",
-            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        )
+        base_url = self._base_url()
+        custom_modelstudio_deployment = "maas.aliyuncs.com" in base_url.lower()
+        if custom_modelstudio_deployment:
+            # Workspace domains expose model discovery on the DashScope-native
+            # /api/v1/models route, not below the OpenAI-compatible /v1 route.
+            # Querying the configured name also lets us distinguish a valid
+            # endpoint from an unavailable model without spending generation
+            # tokens during the first health step.
+            parsed = urlparse(base_url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            # Fetch a useful candidate set instead of filtering by the exact
+            # user-entered value. An exact query returns an empty page when the
+            # value is wrong and leaves the UI with no actionable choices.
+            query = urlencode({"name": "qwen", "page_no": 1, "page_size": 100})
+            request = urllib.request.Request(
+                origin + "/api/v1/models?" + query,
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+                method="GET",
+            )
+            probe_kind = "workspace_model_list"
+        else:
+            request = urllib.request.Request(
+                base_url + "/models",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            )
+            probe_kind = "models_list"
         models: list[str] = []
         rate_headers: dict[str, Any] = {}
         try:
@@ -298,9 +333,19 @@ class OpenAICompatibleProvider(AIProvider):
                     payload = json.loads(raw.decode("utf-8")) if raw else {}
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     payload = {}
-                rows = payload.get("data") if isinstance(payload, dict) else None
-                if isinstance(rows, list):
-                    models = [str(item.get("id") or "") for item in rows if isinstance(item, dict) and item.get("id")]
+                if custom_modelstudio_deployment:
+                    output = payload.get("output") if isinstance(payload, dict) else None
+                    rows = output.get("models") if isinstance(output, dict) else None
+                    if isinstance(rows, list):
+                        models = [
+                            str(item.get("model") or item.get("model_id") or item.get("id") or "")
+                            for item in rows
+                            if isinstance(item, dict) and (item.get("model") or item.get("model_id") or item.get("id"))
+                        ]
+                else:
+                    rows = payload.get("data") if isinstance(payload, dict) else None
+                    if isinstance(rows, list):
+                        models = [str(item.get("id") or "") for item in rows if isinstance(item, dict) and item.get("id")]
                 headers = getattr(response, "headers", None)
                 if headers:
                     for key in ("x-ratelimit-limit-requests", "x-ratelimit-limit-tokens", "retry-after"):
@@ -317,12 +362,30 @@ class OpenAICompatibleProvider(AIProvider):
             from .capability_probe import classify_probe_failure
             status = classify_probe_failure(exc, str(exc)).lower()
             return {**base, "available": False, "status": status, "message": _http_error_message(exc, self._base_url(), self._engine_label())}
+        configured_model = str(self.config.get("model") or "")
+        if custom_modelstudio_deployment and configured_model not in models:
+            return {
+                **base,
+                # Dedicated/custom deployment IDs are valid inference model
+                # identifiers but are not guaranteed to appear in the public
+                # model catalogue.  The manager's synthetic probe is the
+                # authority for whether such an identifier can generate.
+                "available": True,
+                "status": "model_requires_inference_probe",
+                "message": f"千问接口与密钥验证成功；模型“{configured_model}”未在标准模型列表中，将继续进行最小生成验证",
+                "models": models,
+                "model_list_match": False,
+                "health_probe": probe_kind,
+                "rate_limit_headers": rate_headers or "unknown",
+            }
         return {
             **base,
             "available": available,
             "status": "available" if available else "unavailable",
             "message": "可用" if available else "API健康检查失败",
             "models": models,
+            "model_list_match": configured_model in models if custom_modelstudio_deployment else None,
+            "health_probe": probe_kind,
             "rate_limit_headers": rate_headers or "unknown",
         }
 
@@ -338,7 +401,8 @@ class OpenAICompatibleProvider(AIProvider):
         schema = request.get("json_schema")
         if not required and isinstance(schema, dict):
             required = {str(item) for item in (schema.get("required") or []) if item}
-        extra.setdefault("response_format", {"type": "json_object"})
+        if str(request.get("response_protocol") or "") != ENVELOPE_PROTOCOL:
+            extra.setdefault("response_format", {"type": "json_object"})
         extra.pop("temperature", None)
         host = self._base_url().lower()
         dashscope = "dashscope" in host or "maas.aliyuncs.com" in host
@@ -357,9 +421,30 @@ class OpenAICompatibleProvider(AIProvider):
             extra["reasoning_effort"] = request.get("reasoning_effort") or ("high" if longform else "low")
         if zhipu:
             extra.pop("enable_thinking", None)
-            effort = request.get("reasoning_effort") or ("high" if longform else "low")
-            extra["reasoning_effort"] = effort
-            extra["thinking"] = {"type": "enabled" if effort in {"high", "max"} else "disabled"}
+            configured_effort = extra.get("reasoning_effort")
+            effort = (
+                request.get("reasoning_effort")
+                or configured_effort
+                or ("high" if longform else "low")
+            )
+            model_name = str(self.config.get("model") or "").lower()
+
+            # GLM-5.2+ accepts reasoning_effort.  GLM-5.3 always thinks and
+            # rejects thinking.type=disabled, including capability probes that
+            # intentionally request enable_thinking=False.
+            if model_name.startswith(("glm-5.2", "glm-5.3")):
+                effort = {"minimal": "low", "medium": "high", "xhigh": "max", "none": "low"}.get(str(effort), str(effort))
+                if effort not in {"low", "high", "max"}:
+                    effort = "low"
+                extra["reasoning_effort"] = effort
+                extra["thinking"] = {"type": "enabled"}
+            else:
+                # Earlier GLM generations support the thinking switch but not
+                # the reasoning_effort field documented for GLM-5.2+.
+                extra.pop("reasoning_effort", None)
+                extra["thinking"] = {
+                    "type": "enabled" if effort in {"high", "max"} else "disabled"
+                }
         if longform or request.get("generation_mode") == "capability_probe":
             extra["max_tokens"] = int(request.get("max_tokens") or self.config.get("max_tokens") or 8192)
         body = {
@@ -376,7 +461,12 @@ class OpenAICompatibleProvider(AIProvider):
         api_key, _ = self._api_key()
         url = self._base_url() + "/chat/completions"
         timeout = int(request.get("timeout_seconds") or self.config.get("timeout", 300))
-        if "artifact" not in required and not longform:
+        extended_non_artifact_modes = {"tender_requirement_recognition"}
+        if (
+            "artifact" not in required
+            and not longform
+            and request.get("generation_mode") not in extended_non_artifact_modes
+        ):
             timeout = min(timeout, 180)
         http_request = urllib.request.Request(
             url,
@@ -436,7 +526,7 @@ class OpenAICompatibleProvider(AIProvider):
         if "chunk_id=" in prompt and "chunk_id" not in defaults:
             defaults["chunk_id"] = prompt.split("chunk_id=", 1)[1].split("\n", 1)[0].strip()
         try:
-            result, repair = parse_json_object(text, required, defaults)
+            result, repair = parse_provider_payload(request, text, required, defaults)
         except ProviderError:
             raise ProviderError("模型返回格式不完整。请重试解析；已保留本地文件提取结果。", error_code="OUTPUT_CONTRACT_ERROR") from None
         choice = outer["choices"][0] if isinstance(outer.get("choices"), list) and outer["choices"] else {}

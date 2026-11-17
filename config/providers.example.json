@@ -74,7 +74,7 @@
       "endpoint_alias": "zhipu_bigmodel_china",
       "api_key_env": "ZHIPUAI_API_KEY",
       "credential_ref": "property_ai/glm_zhipu",
-      "model": "glm-4.7",
+      "model": "glm-5.3-flash",
       "reasoning_mode": "reasoning_effort_low",
       "timeout": 900,
       "health_timeout": 20,
@@ -126,6 +126,26 @@
         "backend": "xai_imagine"
       },
       "billing_note": "使用 xAI Imagine API 生成图片，需要单独的 XAI_API_KEY。",
+      "qualification_status": "image_service",
+      "test_mode": false
+    },
+    {
+      "provider_name": "glm_image",
+      "display_name": "智谱 CogView（AI图片）",
+      "provider_type": "image_generation",
+      "enabled": false,
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "endpoint_alias": "zhipu_cogview_china",
+      "api_key_env": "ZHIPUAI_API_KEY",
+      "credential_ref": "property_ai/glm_image",
+      "model": "cogview-4-250304",
+      "timeout": 180,
+      "health_timeout": 20,
+      "extra_options": {
+        "backend": "zhipu_cogview",
+        "reuse_text_provider": "glm_zhipu"
+      },
+      "billing_note": "使用智谱开放平台CogView生成图片，可与文字GLM共用同一把Key。实际费用以账户为准。",
       "qualification_status": "image_service",
       "test_mode": false
     },

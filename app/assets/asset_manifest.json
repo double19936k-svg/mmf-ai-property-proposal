@@ -6,58 +6,58 @@
     {
       "asset_name": "generation_layer_patch_v0.2",
       "version": "V0.2",
-      "sha256": "3fee248a62a8b3907b3605f8811cdf7a022c782ed8993d78793f65dbd0e15bcc",
+      "sha256": "60e64bb2ec6328c556b5005162a884650acfa3427349d80f0f0497e5a4abdc62",
       "relative_path": "generation/generation_layer_patch_v0.2.json",
-      "size_bytes": 14635
+      "size_bytes": 14485
     },
     {
       "asset_name": "generation_layer_patch_v0.2",
       "version": "V0.2",
-      "sha256": "8649590e53116e5a2726803326d0bcb49b30fbc85b9c8048d9c263fbcf95fab1",
+      "sha256": "186e73772f53b85f1b99e7bd295c694b37f05f4305ed23f0dbe7f713628e3c71",
       "relative_path": "generation/generation_layer_patch_v0.2.md",
-      "size_bytes": 13492
+      "size_bytes": 13325
     },
     {
       "asset_name": "accepted_ku_b1.2",
       "version": "B1.2",
-      "sha256": "6fe48360b2a724bc482b02eb0c11f35397f0472330d45a9ec41411e2185d93db",
+      "sha256": "74cf682fb4d6ffe277d09b8bdca11789483b7c9dd48463799559e388bb2ed444",
       "relative_path": "knowledge/accepted_ku_b1.2.jsonl",
-      "size_bytes": 71195
+      "size_bytes": 71153
     },
     {
       "asset_name": "candidate_corpus_index_v0.1",
       "version": "V0.1",
-      "sha256": "8c77af6a32924f3a41dfb2ece952748e1e0b82cfe9a8e17afd8988f3fcddaefe",
+      "sha256": "2aa0ee9cb5d7fdd0cf7742829cd14ba6cd4faecd910294f7e0057fa8976b78e0",
       "relative_path": "knowledge/candidate_corpus_index_v0.1.json",
-      "size_bytes": 20971
+      "size_bytes": 20335
     },
     {
       "asset_name": "candidate_guardrail_ids",
       "version": "V0.1",
-      "sha256": "a3b5eec0d1110e65b50d9e4c26b9060443505bcdbe1b0b25a0467bc3a45d82fc",
+      "sha256": "d1c25ce264521289e740cbde47a7ce215adcbc3ca59a9f8c06d7aa73f135d34f",
       "relative_path": "knowledge/candidate_guardrail_ids.json",
-      "size_bytes": 442
+      "size_bytes": 421
     },
     {
       "asset_name": "candidate_positive_ids",
       "version": "V0.1",
-      "sha256": "5d34476d5c5d2cccfceda737ae7b5db40e23c5cfa0ef75fc49f92a3e6db2ee56",
+      "sha256": "edc2dc32b50cba192e4129eb532297b1c0b66c7c541496016818f9de6cea48a6",
       "relative_path": "knowledge/candidate_positive_ids.json",
-      "size_bytes": 419
+      "size_bytes": 399
     },
     {
       "asset_name": "delivery_rendering_patch_v0.1",
       "version": "V0.1",
-      "sha256": "2b0bb80da100bb0871fbec85d5bd36e1ef1ed8d34634ce108f0ea808ebfa0ce8",
+      "sha256": "1d1a49908251a37359f81a4c76852cb9223f58f32bf93a5dff5b1260b925d3a2",
       "relative_path": "rendering/delivery_rendering_patch_v0.1.json",
-      "size_bytes": 1337
+      "size_bytes": 1293
     },
     {
       "asset_name": "delivery_rendering_patch_v0.1",
       "version": "V0.1",
-      "sha256": "6ad4955f49aad20686559e6d6a266198e268e84ef041896fe7e016d745119103",
+      "sha256": "0be67c6de8dcba0a82ae9b20b8dfa0092812f59f099e889e433cd26a136319a4",
       "relative_path": "rendering/delivery_rendering_patch_v0.1.md",
-      "size_bytes": 644
+      "size_bytes": 629
     },
     {
       "asset_name": "output_medium_profile_v0.1",
@@ -87,5 +87,11 @@
       "relative_path": "style/user_writing_style_rules_v0.2.json",
       "size_bytes": 12441
     }
-  ]
+  ],
+  "candidate_integrity_note": {
+    "basis": "verified against frozen source/package manifests and baseline Git blobs",
+    "baseline_head": "21b08e5087326a8302b2db9683636d0ac689a68b",
+    "business_authority_changed": false,
+    "knowledge_corpus_changed": false
+  }
 }

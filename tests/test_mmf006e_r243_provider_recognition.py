@@ -77,12 +77,45 @@ class ExplicitFallbackTests(unittest.TestCase):
                 with self.assertRaisesRegex(app_core.MMFError, "继续使用本地解析结果"):
                     app_core.confirm_tender_run(run_id, {}, {"scenario": "完整物业服务方案"})
 
+    def test_local_fallback_acknowledgement_is_persisted_for_full_proposal(self) -> None:
+        # FLOW A 走的正是这一步：没有运营者确认，闸门一直拒；确认必须落盘。
+        with tempfile.TemporaryDirectory() as folder:
+            runs = Path(folder).resolve()
+            runtime = runs / "runtime"
+            runtime.mkdir()
+            run_id = "tender_fixture_002"
+            tender = runs / run_id / "tender"
+            tender.mkdir(parents=True)
+            (tender / "requirement_pack.json").write_text("{}", encoding="utf-8")
+            (tender / "status.json").write_text(json.dumps({
+                "run_id": run_id,
+                "recognition_outcome": "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK",
+                "local_fallback_confirmed": False,
+            }), encoding="utf-8")
+            with patch.object(app_core, "RUNS_DIR", runs), patch.object(
+                    app_core, "RUNTIME_ROOT", runs), patch.object(
+                    app_core, "RUNTIME_DIR", runtime), patch.object(
+                    app_core, "ACCESS_AUDIT_FILE", runtime / "access.jsonl"), patch.object(
+                    app_core, "_checked", side_effect=lambda p: Path(p)):
+                acked = app_core.acknowledge_tender_local_fallback(run_id)
+            self.assertTrue(acked["status"]["local_fallback_confirmed"])
+            on_disk = json.loads((tender / "status.json").read_text(encoding="utf-8"))
+            self.assertTrue(on_disk["local_fallback_confirmed"])
+            self.assertIn("local_fallback_confirmed_at", on_disk)
+
     def test_ui_exposes_both_actions_and_no_silent_downgrade(self) -> None:
         html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
         self.assertIn("AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK", html)
         self.assertIn("重新识别", html)
         self.assertIn("继续使用本地解析", html)
         self.assertIn("accept-local-fallback", html)
+
+    def test_provider_connection_test_saves_current_form_before_testing(self) -> None:
+        html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("saveCurrentProviderForm", html)
+        self.assertIn("正在使用当前表单内容测试", html)
+        self.assertIn("<datalist", html)
+        self.assertIn("已读取${models.length}个可用模型", html)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -50,9 +52,16 @@ def _local_appdata() -> Path:
     return Path(base) / "MMF Desktop"
 
 
+def default_profile_root(package_root: Path) -> Path:
+    # Separate installations/candidate copies must not share writable run state.
+    identity = str(package_root.resolve()).casefold().encode("utf-8")
+    return _local_appdata() / "instances" / hashlib.sha256(identity).hexdigest()[:12]
+
+
 def user_settings_candidates(package_root: Path) -> list[Path]:
     return [
         Path(os.environ.get("MMF_USER_SETTINGS", "")).expanduser() if os.environ.get("MMF_USER_SETTINGS") else None,
+        default_profile_root(package_root) / "config" / "user_settings.json",
         package_root / "config" / "user_settings.json",
         _local_appdata() / "config" / "user_settings.json",
     ]
@@ -114,7 +123,8 @@ def _choose_user_settings_file(package_root: Path) -> Path:
     existing = [path for path in user_settings_candidates(package_root) if path and path.is_file()]
     if existing:
         return existing[0]
-    secure = _local_appdata() / "config" / "user_settings.json"
+    explicit = os.environ.get("MMF_USER_SETTINGS")
+    secure = Path(explicit) if explicit else default_profile_root(package_root) / "config" / "user_settings.json"
     return secure
 
 
@@ -148,17 +158,18 @@ def load_user_settings(package_root: Path | None = None) -> dict[str, Any]:
 
 def build_roots(package_root: Path | None = None, settings: dict[str, Any] | None = None) -> Roots:
     pkg = (package_root or _default_package_root()).resolve()
-    cfg = dict(settings or load_user_settings(pkg))
+    cfg = dict(settings if settings is not None else load_user_settings(pkg))
+    profile = default_profile_root(pkg)
     app_root = Path(os.environ.get("MMF_APP_ROOT") or pkg / "app").expanduser().resolve()
-    config_root = Path(os.environ.get("MMF_CONFIG_ROOT") or cfg.get("config_root") or pkg / "config").expanduser().resolve()
-    data_root = Path(os.environ.get("MMF_DATA_ROOT") or cfg.get("data_root") or pkg).expanduser().resolve()
-    output_root = Path(os.environ.get("MMF_OUTPUT_ROOT") or cfg.get("output_root") or pkg / "output").expanduser().resolve()
-    temp_root = Path(os.environ.get("MMF_TEMP_ROOT") or cfg.get("temp_root") or pkg / "runtime" / "tmp").expanduser().resolve()
-    logs_dir = Path(os.environ.get("MMF_LOGS_DIR") or cfg.get("logs_dir") or pkg / "logs").expanduser().resolve()
-    runs_dir = Path(os.environ.get("MMF_RUNS_DIR") or cfg.get("runs_dir") or pkg / "runs").expanduser().resolve()
+    config_root = Path(os.environ.get("MMF_CONFIG_ROOT") or cfg.get("config_root") or profile / "config").expanduser().resolve()
+    data_root = Path(os.environ.get("MMF_DATA_ROOT") or cfg.get("data_root") or profile).expanduser().resolve()
+    output_root = Path(os.environ.get("MMF_OUTPUT_ROOT") or cfg.get("output_root") or data_root / "output").expanduser().resolve()
+    temp_root = Path(os.environ.get("MMF_TEMP_ROOT") or cfg.get("temp_root") or data_root / "runtime" / "tmp").expanduser().resolve()
+    logs_dir = Path(os.environ.get("MMF_LOGS_DIR") or cfg.get("logs_dir") or data_root / "logs").expanduser().resolve()
+    runs_dir = Path(os.environ.get("MMF_RUNS_DIR") or cfg.get("runs_dir") or data_root / "runs").expanduser().resolve()
     runtime_dir = Path(os.environ.get("MMF_RUNTIME_DIR") or data_root / "runtime").expanduser().resolve()
     if runtime_dir == data_root:
-        runtime_dir = pkg / "runtime"
+        runtime_dir = data_root / "runtime"
     settings_file = Path(cfg.get("_settings_file") or _choose_user_settings_file(pkg)).expanduser().resolve()
     return Roots(
         package_root=pkg,
@@ -176,7 +187,7 @@ def build_roots(package_root: Path | None = None, settings: dict[str, Any] | Non
         providers_dir=pkg / "providers",
         grok_bridge_dir=pkg / "providers" / "grok_bridge",
         user_settings_file=settings_file,
-        secure_config_dir=_local_appdata() / "config",
+        secure_config_dir=profile / "config",
     )
 
 
@@ -206,7 +217,6 @@ def current() -> Roots:
 def ensure_directories(roots: Roots | None = None) -> Roots:
     item = roots or current()
     for path in (
-        item.app_root,
         item.data_root,
         item.output_root,
         item.config_root,
@@ -214,14 +224,18 @@ def ensure_directories(roots: Roots | None = None) -> Roots:
         item.logs_dir,
         item.runs_dir,
         item.runtime_dir,
-        item.static_dir,
-        item.templates_dir,
-        item.broker_dir,
-        item.providers_dir,
-        item.grok_bridge_dir,
         item.secure_config_dir,
     ):
         path.mkdir(parents=True, exist_ok=True)
+    for name in ("app.json", "providers.example.json"):
+        source, target = item.package_root / "config" / name, item.config_root / name
+        if not target.exists() and source.is_file() and source.resolve() != target.resolve():
+            # Exclusive creation keeps concurrent first starts from overwriting user edits.
+            try:
+                with target.open("xb") as stream, source.open("rb") as original:
+                    shutil.copyfileobj(original, stream)
+            except FileExistsError:
+                pass
     return item
 
 

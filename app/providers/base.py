@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import time
+import uuid
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
+from filesystem_paths import filesystem_path
 
 
 class ProviderError(RuntimeError):
@@ -20,9 +24,66 @@ class ProviderUnavailableError(ProviderError):
     error_code = "PROVIDER_UNAVAILABLE"
 
 
+# Windows MAX_PATH 是 260 个 UTF-16 字符；留出余量给短文件名以外的任何后续拼接。
+MAX_PATH_BUDGET = 240
+
+
+def short_stem(path: Path, reserve: int) -> str:
+    """把文件名主干压进 MAX_PATH 预算；reserve 是目录与随机后缀占用的字符数。"""
+    room = MAX_PATH_BUDGET - len(str(path.parent)) - 1 - reserve
+    return path.stem[:max(3, min(len(path.stem), room))]
+
+
+def atomic_temp_path(path: Path) -> Path:
+    """同目录原子写的临时文件名，且**永远不比目标更长**。
+
+    Windows 默认 MAX_PATH=260（LongPathsEnabled 未开启时）。把 32 位 uuid 直接
+    拼在完整文件名后面会凭空多出 ~38 个字符，于是深层 Run 目录
+    （runs/<id>/longform/word/sections/<sid>/provider_attempt_<n>/）里的每一次
+    写盘都以 FileNotFoundError 失败——在便携版里整条生成链会静默降级。
+    """
+    return path.with_name(f".{short_stem(path, 12 + len(path.suffix))}.{uuid.uuid4().hex[:8]}{path.suffix}.tmp")
+
+
+REPLACE_RETRY_SECONDS = (0.002, 0.006, 0.015, 0.04)
+
+
+def atomic_replace(temp: Path, path: Path) -> None:
+    """把临时文件改名到目标，撞车时只重试"改名"这一步。
+
+    Windows 上 `os.replace` 在目标文件正被另一个线程打开读时会抛
+    `PermissionError [WinError 5]` —— 两个 worker 并发写同一个 Section 目录时
+    实测命中（`r4_run_batch_exception_probe.py`：4 轮 300 类合成链 3 轮抛在
+    `sections/<sid>/governance.json`、`qa.json`、`audit.json` 的改名上）。后果不
+    止是证据少一行：异常从 `_run_batch` 中段抛出，Provider 已经返回、请求账已经
+    停在 `RESPONSE_RECEIVED`，那一批 Content Unit 就此不再落盘。
+    退避最长 66ms，足以跨过一次读盘；仍失败就照原样抛出，不把没换成功的产物当成已写。
+    """
+    for pause in REPLACE_RETRY_SECONDS:
+        try:
+            os.replace(filesystem_path(temp), filesystem_path(path))
+            return
+        except PermissionError:
+            time.sleep(pause)
+    os.replace(filesystem_path(temp), filesystem_path(path))
+
+
 def write_json(path: Path, value: Any) -> None:
+    path = filesystem_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # Provider 证据文件会被并发批次写入同一类目录，也可能在长任务收尾时被审计读取；
+    # 经过临时文件原子替换，读者永远看不到半写的 JSON。
+    payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+    temp = atomic_temp_path(path)
+    try:
+        temp.write_text(payload, encoding="utf-8")
+        atomic_replace(temp, path)
+    finally:
+        try:
+            if temp.exists():
+                temp.unlink()
+        except OSError:
+            pass
 
 
 FILLABLE_EMPTY_LISTS = {
@@ -164,6 +225,30 @@ def parse_json_object(value: Any, required_keys: set[str] | None = None, default
             "business_text_changed": False,
         }
     return repaired, repair
+
+
+ENVELOPE_TEXT_KEY = "cu_envelope_text"
+ENVELOPE_PROTOCOL = "cu_envelope"
+_ENVELOPE_MARKER = re.compile(r"<<<\s*CU_START", re.I)
+
+
+def parse_provider_payload(
+    request: dict[str, Any] | None,
+    value: Any,
+    required_keys: set[str] | None = None,
+    defaults: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Route a response through the transport its request declared.
+
+    Long-form batches may ask for a CU envelope instead of one strict JSON
+    document, so a truncated closing brace cannot void the whole payload.  A
+    provider that ignored the request still falls back to JSON parsing.
+    """
+    protocol = str((request or {}).get("response_protocol") or "")
+    text = value if isinstance(value, str) else _message_text(value)
+    if protocol == ENVELOPE_PROTOCOL and _ENVELOPE_MARKER.search(text or ""):
+        return {ENVELOPE_TEXT_KEY: text}, {"applied": True, "type": "cu_envelope_transport", "business_text_changed": False}
+    return parse_json_object(value, required_keys, defaults)
 
 
 def normalize_recommendation(result: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:

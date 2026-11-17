@@ -5,20 +5,22 @@ from pathlib import Path
 from typing import Any
 
 import paths
+from filesystem_paths import filesystem_path
 
 
 RUN_FOLDERS = ("input", "plan", "provider_result", "artifact", "report", "log")
 
 
 def ensure_run_layout(run_dir: Path) -> dict[str, Path]:
-    run_dir.mkdir(parents=True, exist_ok=True)
+    filesystem_path(run_dir).mkdir(parents=True, exist_ok=True)
     mapping = {name: run_dir / name for name in RUN_FOLDERS}
     for folder in mapping.values():
-        folder.mkdir(parents=True, exist_ok=True)
+        filesystem_path(folder).mkdir(parents=True, exist_ok=True)
     return mapping
 
 
 def _copy_if_exists(source: Path, target: Path) -> None:
+    source, target = filesystem_path(source), filesystem_path(target)
     if not source.exists():
         return
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -45,6 +47,8 @@ def finalize_run(run_id: str, result: dict[str, Any] | None = None) -> dict[str,
             "run_audit.json",
             "generation_status.json",
             "qa_review_summary.json",
+            # §44：待投标人确认事项的内部随件汇总，与 qa_review_summary 同一层。
+            "technical_review_summary.json",
             "last_valid_artifact.json",
         ],
         folders["log"]: ["artifact_build.stdout.log", "artifact_build.stderr.log"],
@@ -53,12 +57,12 @@ def finalize_run(run_id: str, result: dict[str, Any] | None = None) -> dict[str,
         for name in names:
             _copy_if_exists(run_dir / name, target / name)
     for child in run_dir.iterdir():
-        if child.is_dir() and child.name.startswith("provider_"):
+        if child.is_dir() and child.name.startswith("provider_") and child.name not in RUN_FOLDERS:
             _copy_if_exists(child, folders["provider_result"] / child.name)
         if child.suffix.lower() in {".docx", ".pptx"}:
             _copy_if_exists(child, folders["artifact"] / child.name)
     output_dir = roots.output_root / run_id
-    output_dir.mkdir(parents=True, exist_ok=True)
+    filesystem_path(output_dir).mkdir(parents=True, exist_ok=True)
     word_path = ""
     ppt_path = ""
     for artifact in folders["artifact"].glob("*"):
@@ -66,7 +70,7 @@ def finalize_run(run_id: str, result: dict[str, Any] | None = None) -> dict[str,
             continue
         dest = output_dir / artifact.name
         if artifact.resolve() != dest.resolve():
-            shutil.copy2(artifact, dest)
+            shutil.copy2(filesystem_path(artifact), filesystem_path(dest))
         if artifact.suffix.lower() == ".docx":
             word_path = str(dest)
         else:
@@ -80,5 +84,37 @@ def finalize_run(run_id: str, result: dict[str, Any] | None = None) -> dict[str,
         "ppt_path": ppt_path,
         "artifact_dir": str(folders["artifact"]),
         "log_dir": str(folders["log"]),
+    })
+    # Scoring is bound to a path as well as bytes. Measure the delivery carrier
+    # after copying; a binding to the run-root source is stale in artifact/.
+    if (run_dir / "final_scoring_report.json").is_file():
+        from longform.run_state import _landed_final_artifact
+        from app_core import _refresh_final_scoring_delivery, read_json, write_json
+        landed = _landed_final_artifact(run_dir, {".docx"})
+        if landed:
+            qa_path = run_dir / "final_artifact_qa.json"
+            qa = read_json(qa_path, "final_artifact_qa") if qa_path.is_file() else {"findings": []}
+            refreshed = _refresh_final_scoring_delivery(run_dir, Path(landed["path"]), qa)
+            if qa_path.is_file():
+                # Copies are byte-identical; this does not assert a new QA run.
+                if qa.get("sha256") == landed["sha256"]:
+                    refreshed["artifact_path"] = landed["path"]
+                write_json(qa_path, refreshed)
+    # Formal finalization boundary.  The authority derives the terminal state
+    # after the artifact has landed, then projects it back to the returned/UI
+    # payload and every persisted status surface.
+    from longform.run_state import finalize_delivery_state
+    authority = finalize_delivery_state(
+        run_dir,
+        medium=payload.get("medium"),
+        draft_delivery=payload.get("delivery_status"),
+    )
+    derived = authority["derived"]
+    payload.update({
+        "delivery_status": derived["delivery_status"],
+        "qa_state": derived["delivery_status"],
+        "public_phase": derived["public_phase"],
+        "internal_phase": derived["internal_phase"],
+        "run_state_authority": authority.get("schema_version"),
     })
     return payload

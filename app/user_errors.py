@@ -28,10 +28,15 @@ USER_MESSAGES = {
 }
 
 
-def sanitize(text: str, limit: int = 400) -> str:
+def sanitize(text: str, limit: int = 400, *, keep: str = "tail") -> str:
     raw = str(text or "")
     raw = SECRET_RE.sub("[已隐藏]", raw)
     raw = raw.replace("\\", "/")
+    if len(raw) <= limit:
+        return raw
+    # 生成失败的原因写在句首。只留末尾会把「未通过」切成半个词，页面上看成乱码。
+    if keep == "head":
+        return raw[:limit]
     return raw[-limit:]
 
 
@@ -61,7 +66,7 @@ def classify(exc: BaseException | str, *, extra: str = "") -> dict[str, Any]:
         code = "generation_failed"
     user = USER_MESSAGES.get(code, USER_MESSAGES["generation_failed"])
     if code == "generation_failed" and text and not PATH_NOISE_RE.search(text) and any("\u4e00" <= ch <= "\u9fff" for ch in text):
-        user = sanitize(text, 180)
+        user = sanitize(text, 320, keep="head")
     return {
         "error_code": code,
         "error": user,

@@ -1,0 +1,46 @@
+{
+  "run_id": "tender_20260910_082708_085717",
+  "provider_name": "qwen_modelstudio",
+  "model": "qwen3.7-plus",
+  "blocked_at": "2026-09-10T08:38:59+08:00",
+  "legacy_status": "final_artifact_blocked",
+  "legacy_user_message": "方案未能完成最终文件检查，未提供下载。请重新生成。",
+  "paragraph_count": 352,
+  "planned_sections": 27,
+  "generated_sections": 27,
+  "root_cause_rules": ["EMPTY_HEADING_BLOCK", "BROKEN_QUOTE_SERIALIZATION"],
+  "findings": [
+    {
+      "rule_id": "EMPTY_HEADING_BLOCK",
+      "path": "paragraph[0]",
+      "severity": "BLOCK",
+      "issue": "heading is immediately followed by another heading: 青岛海信国际中心物业顾问服务项目",
+      "text": "青岛海信国际中心物业顾问服务项目",
+      "scope": "section"
+    },
+    {
+      "rule_id": "EMPTY_HEADING_BLOCK",
+      "path": "paragraph[1]",
+      "severity": "BLOCK",
+      "issue": "heading is immediately followed by another heading: 青岛海信国际中心物业顾问服务项目｜完整物业服务方案",
+      "text": "青岛海信国际中心物业顾问服务项目｜完整物业服务方案",
+      "scope": "section"
+    },
+    {
+      "rule_id": "EMPTY_HEADING_BLOCK",
+      "path": "paragraph[60]",
+      "severity": "BLOCK",
+      "issue": "heading is immediately followed by another heading: 关键岗位职责边界",
+      "text": "关键岗位职责边界",
+      "scope": "section"
+    },
+    {
+      "rule_id": "BROKEN_QUOTE_SERIALIZATION",
+      "path": "paragraph[17]",
+      "severity": "BLOCK",
+      "issue": "WPS curly-quote serialization compatibility risk",
+      "occurrence_count": 69,
+      "scope": "artifact"
+    }
+  ]
+}

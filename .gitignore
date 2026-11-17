@@ -1,62 +1,57 @@
-# Secrets and local credentials
+# ===== MMF-007 Git 安全整改（Codex 复核整改项） =====
+# 原则：只跟踪源码/配置模板/文档/测试；运行数据、凭据、构建产物、依赖一律不入库。
+# 物理文件不受影响（仅取消跟踪）。
+
+# --- 凭据与本地配置 ---
+providers.local.json
+config/user_settings.json
 .env
 .env.*
-!.env.example
-credentials/
-secrets/
 *.key
-*.pem
-provider_credentials*
-credential_store.db
-credential_store.json
-**/credentials.db
-!app/providers/credential_store.py
-config/providers.local.json
-config/user_settings.json
+credentials/
+credential_store/
 
-# Runtime artifacts
+# --- 运行数据与客户资料 ---
 runs/
 logs/
-cache/
-temp/
 output/
-checkpoint/
-_blocked_artifact/
-last_valid_artifact/
-qa_review_summary.json
-runtime/python/
-runtime/tmp/
-runtime/*.log
-runtime/*.pid
-runtime/*.json
-runtime/*.jsonl
-!runtime/.gitkeep
+uploads/
+migration_backup/
+migration_state.json
+**/runs/
+**/logs/
+**/output/
+**/uploads/
 
-# Python / Node
-__pycache__/
-*.py[cod]
-*$py.class
-.pytest_cache/
-.mypy_cache/
-.venv/
-venv/
+# --- 运行时与检查点 ---
+runtime/
+**/checkpoint/
+**/plan_snapshot/
+**/provider_unknown_requests.jsonl
+**/latency_history.jsonl*
+
+# --- 依赖与构建产物 ---
 node_modules/
-app/node_modules/
-
-# Packaging and OS
 dist/
+build/
 *.egg-info/
-.DS_Store
-Thumbs.db
-Desktop.ini
 
-# Local editor / tool state
-.idea/
-.vscode/
-*.swp
-tests/_reports/
+# --- Python 缓存 ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
 
-# Internal packaging / diagnose helpers — not part of the public product
-tools/assemble_release.py
-tools/mmf006e_r24_diagnose_runs.py
-tools/overlays/
+# --- 生成的成果与临时文件 ---
+*.docx
+*.pptx
+*.pdf
+*.tmp
+temp/
+tmp/
+*.log
+offline_rebuild/
+
+# --- 办公与客户样本（保持在工作区，不入库） ---
+*.xlsx
+*.zip

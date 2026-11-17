@@ -1,0 +1,21 @@
+{
+  "schema_version": "archetype-registry-v0.1",
+  "archetypes": [
+    {"archetype": "Cover", "component": "MMF-COVER-THEME-D", "status": "IMPLEMENTED"},
+    {"archetype": "Section Divider", "component": "MMF-DIVIDER-THEME-D", "status": "IMPLEMENTED"},
+    {"archetype": "Cards", "component": "SK-06-CARDS-3/4/RESPONSIVE", "status": "IMPLEMENTED"},
+    {"archetype": "Process", "component": "SK-07-FLOW-3/4/5", "status": "IMPLEMENTED"},
+    {"archetype": "Process Branch", "component": "SK-08-COMPLEX-FLOW", "status": "IMPLEMENTED"},
+    {"archetype": "Table", "component": "SK-13-NATIVE-TABLE", "status": "IMPLEMENTED"},
+    {"archetype": "Comparison", "component": "SK-13-COMPARISON-TABLE", "status": "IMPLEMENTED"},
+    {"archetype": "Matrix", "component": "SK-16-MATRIX", "status": "IMPLEMENTED"},
+    {"archetype": "Overview / Hero Message", "component": "SK-03-DERIVED-SUMMARY", "status": "IMPLEMENTED"},
+    {"archetype": "Closing", "component": "MMF-CLOSING-THEME-D", "status": "IMPLEMENTED"},
+    {"archetype": "Agenda", "component": "PLANNED-SK02", "status": "PLANNED"},
+    {"archetype": "Image + Text", "component": "PLANNED-SK04", "status": "PLANNED"},
+    {"archetype": "Timeline", "component": "REUSE-SK07", "status": "IMPLEMENTED_VIA_PROCESS"},
+    {"archetype": "KPI", "component": "PLANNED-SK10", "status": "PLANNED"},
+    {"archetype": "Case", "component": "PLANNED-SK15", "status": "PLANNED"}
+  ],
+  "note": "不推翻现有渲染器；PLANNED 项按需要扩展。"
+}

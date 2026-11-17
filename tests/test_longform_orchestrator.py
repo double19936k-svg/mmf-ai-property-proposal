@@ -29,7 +29,7 @@ def _pack() -> dict:
         "pack_id": "PACK-TEST-LONGFORM",
         "status": "ready_for_plan",
         "project_facts": {
-            "project_name": {"value": "示例滨海科技园"},
+            "project_name": {"value": "海信国际中心测试项目"},
             "location": {"value": "青岛市崂山区香港东路108号"},
             "gross_area": {"value": "252567平方米"},
         },
@@ -42,7 +42,7 @@ def _pack() -> dict:
 
 def _brief() -> dict:
     return {
-        "project_name": "示例滨海科技园",
+        "project_name": "海信国际中心测试项目",
         "project_type": "综合体",
         "scenario": "完整物业服务方案",
         "medium": "WORD",
@@ -114,7 +114,8 @@ class LongformOrchestratorTest(unittest.TestCase):
             second_calls = len(list((run / "longform" / "word" / "sections" / "S01-01").glob("provider_attempt_*")))
             self.assertEqual(first_calls, second_calls)
 
-    def test_short_section_triggers_continuation(self):
+    def test_short_section_records_depth_gap_without_rerun(self):
+        """MMF-007C: UNDER_LENGTH is a depth gap, never a whole-Section re-run."""
         class ShortThenLong:
             def __init__(self):
                 self.calls = 0
@@ -134,10 +135,29 @@ class LongformOrchestratorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             run = _write_run(Path(tmp), _pack(), _brief(), _selection())
             provider = ShortThenLong()
-            generate_longform(run_dir=run, provider=provider, provider_name="mock", brief=_brief(), selection=_selection(), selected_ids=["KU-0001"], section_ids=["S01-01"], task_mode="standard")
-            generation = json.loads((run / "longform" / "word" / "sections" / "S01-01" / "generation.json").read_text(encoding="utf-8"))
-            self.assertGreaterEqual(provider.calls, 2)
-            self.assertTrue(generation.get("continuation") or generation.get("retry"))
+            result = generate_longform(run_dir=run, provider=provider, provider_name="mock", brief=_brief(), selection=_selection(), selected_ids=["KU-0001"], section_ids=["S01-01"], task_mode="standard")
+            unit = run / "longform" / "word" / "sections" / "S01-01"
+            attempts = json.loads((unit / "status.json").read_text(encoding="utf-8"))["attempts"]
+            word = result["word"]
+            budget = word["global_repair_budget"] or {}
+            # 初稿阶段这一节只被请求一次；长度缺口不在生成阶段追加调用。
+            self.assertEqual(int(word["INITIAL_GENERATION_CALLS"] or 0), 1)
+            self.assertEqual(len([row for row in attempts if row.get("mode") == "generate"]), 1, "初稿阶段该节只有一次生成请求")
+            self.assertLessEqual(provider.calls - 1, int(budget.get("max_repair_calls") or 0), "QA之后的补充受有界预算约束")
+            self.assertEqual(word["CONTINUATION_CALLS"], 0)
+            self.assertEqual(word["SECTION_REPAIR_CALLS"], 0, "长度缺口不得走整节重写")
+            draft = json.loads((run / "longform" / "word" / "first_draft_artifact.json").read_text(encoding="utf-8-sig"))
+            self.assertEqual(draft["section_states"].get("S01-01"), "COMPLETED_DEPTH_INCOMPLETE")
+            self.assertIn("S01-01", [row["section_id"] for row in word["DEPTH_GAP_SECTIONS"]])
+            self.assertTrue((unit / "fragment.json").is_file())
+            self.assertTrue((unit / "qa.json").is_file())
+            # 补充只新增 Content Unit，且不重写首轮已到达的单元。
+            supplement = json.loads((unit / "supplement.json").read_text(encoding="utf-8"))
+            first_round_cus = set(attempts[0].get("provider_received_content_unit_ids") or [])
+            added_cus = set(supplement.get("content_unit_ids") or [])
+            self.assertEqual(supplement["status"], "ACCEPTED")
+            self.assertTrue(added_cus and not (added_cus & first_round_cus), "DEPTH_SUPPLEMENT 只能新增内容单元")
+            self.assertTrue(supplement["novelty"]["passed"])
 
     def test_depth_gate_rejects_tiny_document(self):
         report = evaluate_longform_depth(
@@ -198,9 +218,9 @@ class LongformOrchestratorTest(unittest.TestCase):
             "section_id": "S01-01",
             "title": "项目概况、服务范围与排除项",
             "body_blocks": [
-                {"type": "", "content": "本方案适用于示例滨海科技园。"},
+                {"type": "", "content": "本方案适用于青岛海信国际中心。"},
                 {"type": "bullet_group", "content": [
-                    {"title": "项目事实清单", "items": ["项目名称：示例滨海科技园物业顾问服务项目", "日常管理顾问内容涵盖：保洁服务管理、绿化服务管理、客户服务管理"]},
+                    {"title": "项目事实清单", "items": ["项目名称：青岛海信国际中心物业顾问服务项目", "日常管理顾问内容涵盖：保洁服务管理、绿化服务管理、客户服务管理"]},
                 ]},
             ],
         }

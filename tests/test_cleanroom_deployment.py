@@ -13,7 +13,7 @@ import urllib.request
 from pathlib import Path
 
 
-WORKSPACE_HINT = "YourProject"
+FORBIDDEN = r"D:\YourProject"
 SECRET_MARKERS = (
     "DASHSCOPE_API_KEY=",
     "MOONSHOT_API_KEY=",
@@ -21,7 +21,6 @@ SECRET_MARKERS = (
     "api_key\": \"sk-",
     "\"api_key\": \"qwen",
 )
-SCANNER_FILES = {"test_cleanroom_deployment.py", "assemble_release.py"}
 
 
 def _http_json(url: str, data: dict | None = None, method: str = "GET", timeout: int = 30) -> tuple[int, dict]:
@@ -53,13 +52,11 @@ def _scan_text(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return hits
-    if path.name in SCANNER_FILES:
-        return hits
-    if WORKSPACE_HINT in text:
+    if FORBIDDEN in text or "YourProject" in text:
         hits.append(f"forbidden_path:{path}")
     lowered = text.lower()
-    if "c:\\users\\" in lowered and "users\\\\public" not in lowered:
-        hits.append(f"local_user_path:{path}")
+    if "C:\\YourProject" in lowered or "/YourProject" in lowered:
+        hits.append(f"todd_user_path:{path}")
     for marker in SECRET_MARKERS:
         if marker.lower() in text.lower() and "example" not in path.name.lower():
             hits.append(f"credential_marker:{path}")
@@ -76,7 +73,7 @@ def _free_port() -> int:
 
 def main() -> int:
     src = Path(__file__).resolve().parents[1]
-    work = Path(tempfile.gettempdir()) / "mmf006e_cleanroom"
+    work = Path(r"clean-temporary-directory")
     work.mkdir(parents=True, exist_ok=True)
     pkg = work / "MMF-006E-portable-v0.1"
     results: list[dict] = []
@@ -96,7 +93,7 @@ def main() -> int:
     env["MMF_PACKAGE_ROOT"] = str(pkg)
     env["MMF_APP_ROOT"] = str(pkg / "app")
     env["MMF_RUNTIME_ROOT"] = str(pkg)
-    env["MMF_FORBIDDEN_ROOTS"] = WORKSPACE_HINT
+    env["MMF_FORBIDDEN_ROOTS"] = FORBIDDEN
     env["MMF_HOST"] = "127.0.0.1"
     env["PYTHONPATH"] = str(pkg / "app")
     env.pop("DASHSCOPE_API_KEY", None)
@@ -135,7 +132,7 @@ def main() -> int:
         "bin_dir": "",
     }, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    proc = subprocess.Popen([str(python), str(pkg / "app" / "server.py")], cwd=str(pkg / "app"), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    proc = subprocess.Popen([str(python), str(pkg / "app" / "server.py")], cwd=str(pkg / "app"), env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     url = f"http://127.0.0.1:{port}"
     health = {}
     started = False

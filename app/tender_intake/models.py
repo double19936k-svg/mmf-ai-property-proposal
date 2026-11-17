@@ -113,13 +113,60 @@ def safe_filename(filename: str) -> str:
     return cleaned[:180]
 
 
+def containment_roots(root: Path) -> list[Path]:
+    """允许根集合 = 调用方给的包根 + 当前部署姿态下的全部允许工作根。
+    把数据根指到包外是受支持的姿态（便携包 E2E、只读安装目录 + AppData 都是），
+    只看包根会把合法的 Run 目录判成越界，一次正常上传变 400。"""
+    candidates: list[Path] = [root]
+    try:
+        import paths as _app_paths
+        candidates.extend(_app_paths.current().allowed_roots())
+    except ImportError:
+        pass
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        try:
+            resolved = Path(candidate).resolve()
+        except OSError:
+            continue
+        key = str(resolved).casefold()
+        # 盘根/文件系统根会把整台机器变成"允许范围内"，这类根不参与判定。
+        if key in ("", ".") or resolved.parent == resolved or key in seen:
+            continue
+        seen.add(key)
+        roots.append(resolved)
+    return roots
+
+
 def ensure_within(path: Path, root: Path) -> Path:
     resolved = path.resolve()
-    try:
-        resolved.relative_to(root.resolve())
-    except ValueError as exc:
-        raise TenderError("EXTRACT_IO", "路径越界，已拒绝访问。") from exc
-    return resolved
+    # 显式禁止根（研发目录黑名单）比允许根优先，和 app_core._checked 同一口径。
+    for value in [item for item in os.environ.get("MMF_FORBIDDEN_ROOTS", "").split(os.pathsep) if item.strip()]:
+        try:
+            resolved.relative_to(Path(value).expanduser().resolve())
+        except ValueError:
+            continue
+        raise TenderError("EXTRACT_IO", "当前环境不允许访问该目录。")
+    for allowed in containment_roots(root):
+        try:
+            resolved.relative_to(allowed)
+        except ValueError:
+            continue
+        return resolved
+    raise TenderError("EXTRACT_IO", "路径越界，已拒绝访问。")
+
+
+def relative_label(path: Path, root: Path) -> str:
+    """相对路径只是审计标签：路径落在允许根但不在包内时（数据根被重定向），
+    记绝对路径，不要让一次合法的 relative_to 失败变成上传失败。"""
+    resolved = path.resolve()
+    for allowed in containment_roots(root):
+        try:
+            return resolved.relative_to(allowed).as_posix()
+        except ValueError:
+            continue
+    return str(resolved)
 
 
 def validate_extraction(value: dict[str, Any]) -> None:

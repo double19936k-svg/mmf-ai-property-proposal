@@ -214,6 +214,7 @@ def _synthetic_probe(provider: Any) -> dict[str, Any]:
     except Exception as exc:
         result["structured_response"] = "rejected"
         result["probe_error"] = type(exc).__name__
+        result["probe_message"] = _sanitize_reason(exc)
         result["status"] = classify_probe_failure(exc, str(exc))
     return result
 
@@ -306,6 +307,9 @@ def observe_from_health(
                 status = "UNAVAILABLE"
             provenance = "live_health_or_models_list"
 
+        observation_reason = health.get("message") or health.get("status") or ""
+        if health.get("available") and structured == "rejected" and synthetic.get("probe_message"):
+            observation_reason = synthetic["probe_message"]
         row = public_observation({
             "provider_name": provider_name,
             "observed_model": observed_model,
@@ -317,7 +321,7 @@ def observe_from_health(
             "rate_limit_metadata": rate_meta,
             "provenance": provenance,
             "status": status,
-            "reason": _sanitize_reason(health.get("message") or health.get("status") or ""),
+            "reason": _sanitize_reason(observation_reason),
             "observed_at": utc_now(),
             "observed_epoch": time.time(),
             "ttl_seconds": PROBE_TTL_SECONDS,

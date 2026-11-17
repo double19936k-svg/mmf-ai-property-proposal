@@ -10,13 +10,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .account_image import ACCOUNT_IMAGE_NAMES, AccountImageProvider, account_image_rows
 from .base import AIProvider, ProviderUnavailableError
 from .credential_store import CredentialStore
+from .cursor_account import CursorAccountProvider, cursor_provider_rows
 from .grok_build import GrokBuildProvider
-from .image_generation import ImageGenerationProvider
+from .image_generation import ImageGenerationProvider, normalize_image_base_url
 from .local_cli import LocalCLIProvider
 from .mock import MockProvider
 from .openai_compatible import OpenAICompatibleProvider, normalize_openai_base_url
+from .qoder_internal import QoderInternalProvider
+from .qoder_account import QoderAccountProvider, account_provider_rows
+from .zcode_account import ZCodeAccountProvider, zcode_provider_rows
 
 PROVIDER_TYPES = {
     "grok_build": GrokBuildProvider,
@@ -24,9 +29,40 @@ PROVIDER_TYPES = {
     "local_cli": LocalCLIProvider,
     "mock": MockProvider,
     "image_generation": ImageGenerationProvider,
+    "qoder_internal": QoderInternalProvider,
+    "qoder_account": QoderAccountProvider,
+    "zcode_account": ZCodeAccountProvider,
+    "cursor_account": CursorAccountProvider,
 }
 PUBLIC_FIELDS = {"display_name", "enabled", "base_url", "model", "reasoning_mode", "temperature", "timeout", "health_timeout", "extra_options", "billing_note"}
 DEVELOPER_FIELDS = {"provider_type", "endpoint_alias", "provider_version", "command", "command_template", "api_key_env", "proxy_env", "model_alias"}
+
+# MMF-007C 阶段7：只在设置了队列目录的进程里出现的任务作用域执行通道。
+# 不写入 providers.local.json，也不读取凭据库；取消环境变量后彻底消失。
+TASK_SCOPED_PROVIDER_ENV = "MMF_QODER_INTERNAL_QUEUE_DIR"
+
+
+def task_scoped_provider_rows() -> list[dict[str, Any]]:
+    queue_dir = str(os.environ.get(TASK_SCOPED_PROVIDER_ENV) or "").strip()
+    if not queue_dir:
+        return []
+    try:
+        wait_timeout = max(30, int(os.environ.get("MMF_QODER_INTERNAL_WAIT_TIMEOUT") or 1800))
+    except (TypeError, ValueError):
+        wait_timeout = 1800
+    return [{
+        "provider_name": "qoder_internal",
+        "display_name": "Qoder 内部 Qwen3.8-Flash（文件队列）",
+        "provider_type": "qoder_internal",
+        "enabled": True,
+        "test_mode": True,
+        "qualification_status": "task_scoped",
+        "model": "qwen3.8-flash",
+        "endpoint_alias": "qoder_internal_queue",
+        "billing_note": "仅消耗 Qoder 内部免费额度；不读取任何外部 Provider Key 与凭据库。",
+        "queue_dir": queue_dir,
+        "wait_timeout": wait_timeout,
+    }]
 
 class ProviderManager:
     def __init__(self, app_root: Path, cache_seconds: int = 30, config_dir: Path | None = None):
@@ -72,10 +108,34 @@ class ProviderManager:
             self.config = json.loads(self.local_path.read_text(encoding="utf-8-sig"))
             self.default_provider = self.config.get("default_provider", "grok_build")
             self.providers: dict[str, AIProvider] = {}
-            for item in self.config.get("available_providers", []):
-                cls = PROVIDER_TYPES.get(item.get("provider_type"))
+            rows = [row for row in self.config.get("available_providers", []) if isinstance(row, dict)]
+            have = {str(row.get("provider_name") or "") for row in rows}
+            rows.extend(row for row in task_scoped_provider_rows() if str(row.get("provider_name")) not in have)
+            rows.extend(row for row in account_provider_rows() if str(row.get("provider_name")) not in have)
+            rows.extend(row for row in zcode_provider_rows() if str(row.get("provider_name")) not in have)
+            rows.extend(row for row in cursor_provider_rows() if str(row.get("provider_name")) not in have)
+            rows.extend(account_image_rows())
+            configured_rows = {
+                str(row.get("provider_name") or ""): row
+                for row in rows
+            }
+            for item in rows:
+                cls = (AccountImageProvider if item.get("provider_name") in ACCOUNT_IMAGE_NAMES
+                       else PROVIDER_TYPES.get(item.get("provider_type")))
                 if cls:
-                    self.providers[item["provider_name"]] = cls(dict(item), self.credential_store)
+                    runtime_item = dict(item)
+                    if item.get("provider_type") == "image_generation":
+                        extra = dict(item.get("extra_options") or {})
+                        reuse_name = str(extra.get("reuse_text_provider") or "")
+                        reused = configured_rows.get(reuse_name) or {}
+                        reused_url = str(reused.get("base_url") or "").strip()
+                        if reused_url:
+                            runtime_item["base_url"] = normalize_image_base_url(
+                                reused_url,
+                                str(extra.get("backend") or "dashscope_wanx"),
+                            )
+                            runtime_item["endpoint_inherited_from"] = reuse_name
+                    self.providers[item["provider_name"]] = cls(runtime_item, self.credential_store)
             self._health_cache.clear()
 
     def _live_file(self) -> Path:
@@ -141,6 +201,17 @@ class ProviderManager:
         provider = self.providers.get(provider_name)
         if not provider:
             return {"configured": False, "available": False, "status": "unknown_provider", "message": "Provider不存在", "metadata": {"provider_name": provider_name}}
+        if isinstance(provider, AccountImageProvider):
+            return provider.health_check()
+        if provider.config.get("provider_type") == "cursor_account":
+            from .cursor_settings import provider_health
+            return provider_health(provider)
+        if provider.config.get("provider_type") == "zcode_account":
+            return provider.health_check()
+        if provider.config.get("provider_type") == "qoder_account":
+            # Explicit connection is checked by the SDK controller. Never issue the
+            # manager's synthetic paid ping, or resurrect a cached login as ready.
+            return provider.health_check()
         cached = self._health_cache.get(provider_name)
         if not refresh and cached and time.monotonic() - cached[0] < self.cache_seconds:
             return cached[1]
@@ -157,7 +228,16 @@ class ProviderManager:
             result["capability_observation"] = observe_from_health(provider, result, force=bool(refresh), run_synthetic=bool(refresh))
             observation = result["capability_observation"]
             if refresh and observation.get("structured_response") == "rejected":
-                result = {**result, "available": False, "status": str(observation.get("status") or "unavailable").lower(), "message": "连接测试未通过结构化生成探测，请检查引擎设置或稍后重试。"}
+                message = str(observation.get("reason") or "连接测试未通过最小生成验证，请检查模型名称或稍后重试。")
+                candidates = [str(item) for item in (result.get("models") or []) if item][:8]
+                if provider_name == "qwen_modelstudio" and candidates:
+                    message += " 可选择的模型包括：" + "、".join(candidates)
+                result = {
+                    **result,
+                    "available": False,
+                    "status": str(observation.get("status") or "unavailable").lower(),
+                    "message": message,
+                }
         except Exception:
             result["capability_observation"] = {
                 "status": "UNAVAILABLE",
@@ -190,6 +270,15 @@ class ProviderManager:
         return "connection_failed"
 
     def _passive_health(self, provider_name: str, provider: AIProvider) -> dict[str, Any]:
+        if isinstance(provider, AccountImageProvider):
+            return provider.health_check()
+        if provider.config.get("provider_type") == "cursor_account":
+            from .cursor_settings import provider_health
+            return provider_health(provider)
+        if provider.config.get("provider_type") == "zcode_account":
+            return provider.health_check()
+        if provider.config.get("provider_type") == "qoder_account":
+            return provider.health_check()
         cached = self._health_cache.get(provider_name)
         if cached and time.monotonic() - cached[0] < self.cache_seconds:
             return cached[1]
@@ -250,8 +339,21 @@ class ProviderManager:
         cfg = provider.config
         fields = PUBLIC_FIELDS | ({"provider_name"} | DEVELOPER_FIELDS if developer else {"provider_name"})
         value = {key: cfg.get(key) for key in fields if key in cfg}
-        secret, _ = self.credential_store.get(provider_name, cfg.get("api_key_env", ""))
-        value.update({"provider_name": provider_name, "credential_ref": cfg.get("credential_ref", self.credential_store.credential_ref(provider_name)), "api_key_masked": "********" if secret else "", "credential_capability": self.credential_store.capability(), "qualification_status": cfg.get("qualification_status", "experimental")})
+        if cfg.get("provider_type") == "zcode_account":
+            return {**value,"provider_name":provider_name,"credential_source":"official_zcode_bigmodel_login",
+                "api_key_masked":"","qualification_status":"experimental"}
+        if cfg.get("provider_type") == "cursor_account":
+            return {**value, "provider_name": provider_name, "credential_source": "official_cursor_sdk_login",
+                    "api_key_masked": "", "qualification_status": "experimental"}
+        if cfg.get("provider_type") == "qoder_account":
+            return {**value, "provider_name": provider_name, "credential_source": provider.get_metadata()["credential_source"],
+                    "api_key_masked": "", "qualification_status": "experimental"}
+        provider = self.providers.get(provider_name)
+        if cfg.get("provider_type") == "image_generation" and provider is not None and hasattr(provider, "_api_key"):
+            secret, credential_source = provider._api_key()
+        else:
+            secret, credential_source = self.credential_store.get(provider_name, cfg.get("api_key_env", ""))
+        value.update({"provider_name": provider_name, "credential_ref": cfg.get("credential_ref", self.credential_store.credential_ref(provider_name)), "api_key_masked": "********" if secret else "", "credential_source": credential_source, "credential_capability": self.credential_store.capability(), "qualification_status": cfg.get("qualification_status", "experimental")})
         return value
 
     def save_config(self, provider_name: str, changes: dict[str, Any], api_key: str = "") -> dict[str, Any]:
@@ -263,7 +365,11 @@ class ProviderManager:
                 if key in changes:
                     value = changes[key]
                     if key == "base_url":
-                        value = normalize_openai_base_url(str(value or ""))
+                        if item.get("provider_type") == "image_generation":
+                            backend = str((item.get("extra_options") or {}).get("backend") or "dashscope_wanx")
+                            value = normalize_image_base_url(str(value or ""), backend)
+                        else:
+                            value = normalize_openai_base_url(str(value or ""))
                     item[key] = value
             credential_result = None
             if str(api_key or "").strip():

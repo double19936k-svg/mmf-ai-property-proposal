@@ -4,6 +4,7 @@ import re
 import unicodedata
 import uuid
 from collections import defaultdict
+from decimal import Decimal
 from typing import Any
 
 from .models import CANONICAL_FACT_KEYS, TenderError, now_iso, validate_pack_shape
@@ -68,7 +69,8 @@ def _mandatory_level(text: str, guess: str = "UNKNOWN") -> str:
 
 def _requirement_type(text: str, guess: str = "other") -> str:
     if re.search(r"评分|分值|得分|权重", text): return "scoring"
-    if re.search(r"不包含|不含|排除|不提供|不属于服务范围", text): return "exclusion"
+    if re.search(r"不包含|不含|排除|不提供|不属于服务范围|不在本次", text): return "exclusion"
+    if re.search(r"(?:纳入|包含|属于).{0,16}(?:保洁|服务|绿化|秩序|工程)", text): return "service_scope"
     if re.search(r"(?:服务|值守|工作|运营).{0,8}\d+\s*(?:小时|h\b)|\d+\s*(?:小时|h\b).{0,8}(?:服务|值守|工作)", text, re.I): return "service_hours"
     if re.search(r"人员|岗位|编制|不少于\s*\d+\s*人|\d+\s*人", text): return "staffing"
     if re.search(r"SLA|KPI|响应时间|完成率|满意率|分钟内|小时内", text, re.I): return "sla_kpi"
@@ -170,26 +172,12 @@ def candidates_from_extraction(extraction: dict[str, Any]) -> list[dict[str, Any
 
 
 def _canonical_facts(requirements: list[dict[str, Any]]) -> dict[str, Any]:
-    facts: dict[str, Any] = {}
-    patterns = {
-        "project_name": r"项目名称\s*[：:]\s*([^，。；\n]+)",
-        "project_type": r"项目(?:类型|业态)\s*[：:]\s*([^，。；\n]+)",
-        "location": r"(?:项目)?(?:地址|地点|所在地)\s*[：:]\s*([^，。；\n]+)",
-        "gross_area": r"(?:总建筑面积|建筑面积)\s*[：:]?\s*([0-9.]+\s*(?:万)?(?:平方米|㎡))",
-        "managed_area": r"管理面积\s*[：:]?\s*([0-9.]+\s*(?:万)?(?:平方米|㎡))",
-        "contract_duration": r"(?:合同期|服务期|合同期限)\s*[：:]?\s*([^，。；\n]+)",
-    }
-    for requirement in requirements:
-        if requirement.get("excluded_from_solution_body"):
-            continue
-        text = requirement["normalized_requirement"]
-        for key, pattern in patterns.items():
-            match = re.search(pattern, text)
-            if match and key not in facts:
-                facts[key] = {"value": match.group(1).strip(), "source_requirement_id": requirement["requirement_id"], "confirmation_status": "UNCONFIRMED"}
-        if "产业园" in text and "project_type" not in facts:
-            facts["project_type"] = {"value": "产业园", "source_requirement_id": requirement["requirement_id"], "confirmation_status": "UNCONFIRMED"}
-    return {key: value for key, value in facts.items() if key in CANONICAL_FACT_KEYS}
+    from .fact_sources import facts_from_candidates
+    verified: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in requirements:
+        for slot, candidates in row.get("_verified_fact_candidates", {}).items():
+            verified[slot].extend(candidates)
+    return facts_from_candidates(verified)
 
 
 def _project_context(candidates: list[dict[str, Any]]) -> tuple[bool, set[str]]:
@@ -220,7 +208,7 @@ def _sortable_source_key(source: dict[str, Any]) -> tuple[str, ...]:
     return tuple("" if value is None else str(value) for value in _source_key(source))
 
 
-def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict[str, Any]], proposed_scoring_items: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict[str, Any]], proposed_scoring_items: list[dict[str, Any]] | None = None, *, provider_proposals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     industrial, project_names = _project_context(proposed_items)
     merged: dict[str, dict[str, Any]] = {}
     for candidate in proposed_items:
@@ -235,9 +223,14 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         if key not in merged:
             classification, boilerplate_reasons = _classification(text, requirement_type, industrial, project_names)
             tender_content_class = _tender_content_class(text, requirement_type, source)
+            try:
+                confidence = max(0.0, min(1.0, float(candidate.get("confidence", 0.75))))
+            except (TypeError, ValueError):
+                # Provider 偶发返回非数值置信度（如 "HIGH"），按默认值处理。
+                confidence = 0.75
             merged[key] = {
                 "normalized_requirement": text, "requirement_type": requirement_type, "mandatory_level": level,
-                "confidence": max(0.0, min(1.0, float(candidate.get("confidence", 0.75)))),
+                "confidence": confidence,
                 "classification": classification, "conflict_group": None, "boilerplate_flag_id": None,
                 "value_normalized": value, "value_unit": unit, "domain": requirement_type,
                 "scoring_item_id": None, "sources": [], "confirmation_status": "UNCONFIRMED",
@@ -266,25 +259,36 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         row["requirement_id"] = f"REQ-{index:04d}"
 
     conflicts: list[dict[str, Any]] = []
+    from .fact_sources import fact_candidates, comparison_value
     by_slot: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in requirements:
         if row["requirement_type"] in {"service_hours"} and row.get("value_normalized") is not None:
-            by_slot[row["requirement_type"]].append(row)
-    for slot, rows in by_slot.items():
-        values = {str(row.get("value_normalized")) for row in rows}
+            by_slot[row["requirement_type"]].append({"requirement_id":row["requirement_id"], "value":row["value_normalized"], "source":row["sources"][0]})
+    verified_facts = fact_candidates(requirements, extraction)
+    by_slot.update(verified_facts)
+    for row in requirements:
+        row["_verified_fact_candidates"] = {slot:[item for item in entries if item["requirement_id"]==row["requirement_id"]]
+                                            for slot, entries in verified_facts.items()}
+    by_id = {row["requirement_id"]:row for row in requirements}
+    for slot, entries in by_slot.items():
+        values = {comparison_value(slot, item["value"]) for item in entries}
         if len(values) <= 1:
             continue
+        rows = [by_id[rid] for rid in dict.fromkeys(item["requirement_id"] for item in entries)]
         cfg_id = f"CFG-{len(conflicts)+1:03d}"
         for row in rows:
             row["classification"] = "CONFLICT_OR_AMBIGUOUS"
             row["conflict_group"] = cfg_id
             row["must_not_use_as_project_fact"] = True
+            if slot != "service_hours":
+                row.setdefault("held_project_fact_slots", []).append(slot)
         conflicts.append({
             "conflict_group_id": cfg_id, "requirement_ids": [row["requirement_id"] for row in rows],
             "issue": f"同一{slot}出现不同值，系统不自动选择。",
-            "options": [{"requirement_id": row["requirement_id"], "excerpt": row["sources"][0]["source_excerpt"], "value": row.get("value_normalized")} for row in rows],
+            "options": [{"requirement_id": item["requirement_id"], "excerpt":item["source"]["source_excerpt"], "source":item["source"], "value":comparison_value(slot, item["value"]) if slot in {"gross_area", "managed_area"} else item["value"], "source_value":item["value"]} for item in entries],
             "resolution": "UNRESOLVED", "custom_value": None,
             "blocker_for_plan": any(row["mandatory_level"] == "MUST" for row in rows),
+            "fact_slot":slot, "provenance":"SOURCE_BOUND_CANONICAL_FACT" if slot != "service_hours" else "LOCAL_SERVICE_HOURS_REQUIREMENT_VALUE",
         })
 
     boilerplate: list[dict[str, Any]] = []
@@ -301,6 +305,9 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         })
 
     scoring_items: list[dict[str, Any]] = []
+    from .proposal_channels import attach_proposals
+    proposals = attach_proposals(requirements, conflicts, boilerplate, provider_proposals or [])
+    for row in requirements:row.pop("_area_conflict_value", None)
     for row in requirements:
         if row["requirement_type"] != "scoring":
             continue
@@ -325,7 +332,36 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
             "weight_numeric": proposed.get("weight_numeric"), "must_respond": bool(proposed.get("must_respond", True)), "source": source,
         })
 
+    # 评分结构图：从评分表**单元格**认"卷次 → 父项 → 可独立响应叶子"，再把每条抽取行落到叶子上。
+    # 主题身份因此来自表格的行列，而不是打平后那串文本（Run F 的 5 分/3 分/2 分就是这样丢的）。
+    # 函数内 import：`planning` 与 `tender_intake` 互相引用，模块级 import 会成环
+    # （同文件下方 `is_bid_process_text` 用的是同一手法）。
+    from planning.scoring_graph import build_scoring_graph, graph_readings
+
+    scoring_graph = build_scoring_graph(extraction, scoring_items)
+    leaf_by_item = {str(row.get("scoring_item_id")): str(row.get("leaf_id"))
+                    for row in scoring_graph.get("item_links") or []}
+    leaves_by_id = {str(row.get("leaf_id")): row for row in scoring_graph.get("leaves") or []}
+    for item in scoring_items:
+        leaf_id = leaf_by_item.get(str(item.get("scoring_item_id") or ""))
+        item["scoring_leaf_id"] = leaf_id
+        item["scoring_leaf_version"] = scoring_graph.get("version")
+        # 范围门与第二维读同一格：`scoring_leaf_text` = 评分因素格的事项名 + 本行评分标准。
+        # 只喂打平残段时，"…全面性、可行性、及时性等方面横向比较进行打分"在范围门那里
+        # 读成方法描述（TECHNICAL_REFERENCE），事项名与 5 分在表格的别的列里没人看见。
+        leaf = leaves_by_id.get(str(leaf_id or "")) or {}
+        item["scoring_leaf_text"] = str(leaf.get("leaf_text") or "") or None
+
     clarification: list[dict[str, Any]] = []
+    if scoring_graph.get("status") != "DERIVED":
+        # 图建不出来是**招标文件形态**的问题（扫描件、无评分表、只有卷次汇总表），不是产品的事：
+        # 登记成澄清项交给人工，而不是让下游以为"这张表本来就没有可响应主题"。
+        clarification.append({
+            "clarification_id": f"CLQ-{len(clarification)+1:03d}",
+            "reason_code": "SCORING_GRAPH_NOT_DERIVABLE",
+            "question": "评分表未能解析出父项与可独立响应子项的结构，评分分母退回按行折叠，"
+                        "请人工核对评分表是否被完整抽取。",
+            "blocks_plan": False, "related_requirement_ids": [], "answer": None, "answered_by": "none"})
     for warning in extraction.get("warnings", []):
         if warning.get("code") == "SCAN_PAGE":
             clarification.append({"clarification_id": f"CLQ-{len(clarification)+1:03d}", "reason_code": "SCAN_PAGE", "question": f"{warning.get('file_id')}第{warning.get('page_no')}页疑似扫描页，本轮未识别，是否需要人工补充？", "blocks_plan": False, "related_requirement_ids": [], "answer": None, "answered_by": "none"})
@@ -333,6 +369,14 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         clarification.append({"clarification_id": f"CLQ-{len(clarification)+1:03d}", "reason_code": "UNRESOLVED_CONFLICT", "question": conflict["issue"], "blocks_plan": conflict["blocker_for_plan"], "related_requirement_ids": conflict["requirement_ids"], "answer": None, "answered_by": "none"})
     for flag in boilerplate:
         clarification.append({"clarification_id": f"CLQ-{len(clarification)+1:03d}", "reason_code": "UNCONFIRMED_BOILERPLATE", "question": "该条内容疑似跨业态模板残留，请确认适用性。", "blocks_plan": True, "related_requirement_ids": flag["requirement_ids"], "answer": None, "answered_by": "none"})
+    for proposal in proposals:
+        if proposal["channel"] == "chunk_missing_facts" or proposal["validation_status"] != "SOURCE_BOUND_PROPOSAL":
+            suggestion = proposal["proposal"]
+            question = str(suggestion.get("question") or suggestion.get("description") or suggestion.get("reason") or suggestion.get("field") or "模型提议缺少可核实来源，请保留待审阅") if isinstance(suggestion, dict) else str(suggestion)
+            clarification.append({"clarification_id": f"CLQ-{len(clarification)+1:03d}",
+                "reason_code": "PROVIDER_CHUNK_PROPOSAL_REQUIRES_REVIEW", "question": question,
+                "blocks_plan": False, "related_requirement_ids": [], "answer": None, "answered_by": "none",
+                "proposal_id": proposal["proposal_id"], "scope": "EXTRACTION_CHUNK", "validation_status": proposal["validation_status"]})
     scoring_detected = any(table.get("is_scoring_table") for table in extraction.get("tables", [])) or any(re.search(r"评分|分值|得分|权重", row.get("text", "")) for row in extraction.get("paragraphs", []))
     if scoring_detected and not scoring_items:
         clarification.append({"clarification_id": f"CLQ-{len(clarification)+1:03d}", "reason_code": "SCORING_TABLE_UNPARSED", "question": "检测到评分章节或评分表，但未能形成评分项，请人工补充。", "blocks_plan": True, "related_requirement_ids": [], "answer": None, "answered_by": "none"})
@@ -341,6 +385,27 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         low_risk = row["classification"] == "GENERIC_REQUIREMENT" and row["mandatory_level"] == "INFO" and row["requirement_type"] not in HIGH_IMPACT_TYPES
         if low_risk:
             row["confirmation_status"] = "CONFIRMED"
+
+    # 自愈：Provider 提议的 PROJECT_SPECIFIC 若无强项目上下文证据（且无事实值佐证），
+    # 降级为 GENERIC_REQUIREMENT 并生成澄清项，避免单条分类波动导致整个 Pack 无法构建。
+    fact_values = {str(row.get("value", "")) for row in _canonical_facts(requirements).values() if isinstance(row, dict) and row.get("value")}
+    for row in requirements:
+        if row["classification"] != "PROJECT_SPECIFIC":
+            continue
+        text = row["normalized_requirement"]
+        strong = bool(re.search(r"本项目|本园区|本次招标|项目名称|项目地址|项目位于|本合同范围", text))
+        if strong or any(value and value in text for value in fact_values):
+            continue
+        row["classification"] = "GENERIC_REQUIREMENT"
+        clarification.append({
+            "clarification_id": f"CLQ-{len(clarification)+1:03d}",
+            "reason_code": "PROJECT_SPECIFIC_DOWNGRADED",
+            "question": f"{row['requirement_id']} 被提议为项目专属要求，但未检测到项目上下文证据，已降级为通用要求；请确认其性质。",
+            "blocks_plan": False,
+            "related_requirement_ids": [row["requirement_id"]],
+            "answer": None,
+            "answered_by": "none",
+        })
 
     bucket_values = {name: [] for name in REQUIREMENT_BUCKETS.values()}
     for row in requirements:
@@ -360,15 +425,36 @@ def build_requirement_pack(extraction: dict[str, Any], proposed_items: list[dict
         **bucket_values, "ambiguities": [item["clarification_id"] for item in clarification if item["reason_code"] != "SCAN_PAGE"],
         "conflicts": conflicts, "potential_boilerplate": boilerplate, "clarification_items": clarification,
         "requirements": requirements, "scoring_items": scoring_items,
+        "provider_proposals": proposals,
+        "scoring_graph": scoring_graph,
+        "scoring_graph_readings": graph_readings(scoring_graph),
+        "scoring_linkages": [],
         "confirmation": {"confirmed_at": None, "confirmed_by": None, "high_impact_reviewed": False, "conflicts_reviewed": False, "boilerplate_reviewed": False, "missing_reviewed": False, "ready_for_brief_seed": False},
         "authority": "local_pack_builder_provider_proposes", "created_at": now_iso(),
     }
+    from governance.tender_controls import extract_controls
+    pack["source_controls"] = extract_controls(extraction)
     pack["project_facts"] = _canonical_facts(requirements)
     for row in requirements:
+        row.pop("_verified_fact_candidates", None)
+    pack["scoring_linkages"] = build_scoring_linkages(requirements, scoring_items)
+    for row in requirements:
         if row["requirement_type"] == "exclusion":
-            pack["service_scope"]["excluded"].append({"requirement_id": row["requirement_id"], "text": row["normalized_requirement"]})
+            pack["service_scope"]["excluded"].append({"requirement_id": row["requirement_id"], "text": row["normalized_requirement"], "sources": list(row.get("sources") or [])})
         elif row["requirement_type"] == "service_scope":
-            pack["service_scope"]["included"].append({"requirement_id": row["requirement_id"], "text": row["normalized_requirement"]})
+            pack["service_scope"]["included"].append({"requirement_id": row["requirement_id"], "text": row["normalized_requirement"], "sources": list(row.get("sources") or [])})
+    from governance.proposal_fidelity import reconcile_excluded_scope, scope_conflict_pairs, whitelist_from_extraction
+    pack["mandatory_scope_text"] = "\n".join([
+        whitelist_from_extraction(extraction),
+        "\n".join(item["text"] for item in pack["service_scope"]["included"]),
+        "\n".join(str(item.get("label") or "") for item in scoring_items),
+    ])
+    kept, _conflict_ids = reconcile_excluded_scope(
+        pack["service_scope"]["excluded"],
+        "\n".join(item["text"] for item in pack["service_scope"]["included"]),
+    )
+    pack["service_scope"]["excluded"] = kept
+    pack["scope_conflicts"] = scope_conflict_pairs(pack["service_scope"]["included"], kept)
     validate_requirement_pack(pack)
     return pack
 
@@ -388,5 +474,79 @@ def validate_requirement_pack(pack: dict[str, Any]) -> None:
                 raise TenderError("UNDERSTAND_SCHEMA_INVALID", "PROJECT_SPECIFIC缺少项目上下文证据。")
     valid_ids = seen
     for conflict in pack["conflicts"]:
-        if len(conflict.get("requirement_ids", [])) < 2 or not set(conflict["requirement_ids"]) <= valid_ids:
+        source_bound = conflict.get("provenance") in {"SOURCE_BOUND_PROVIDER_PROPOSAL", "SOURCE_BOUND_CANONICAL_FACT"} and len(conflict.get("options", [])) >= 2 and all(option.get("source", {}).get("file_id") and option.get("source", {}).get("source_excerpt") for option in conflict["options"])
+        if (len(conflict.get("requirement_ids", [])) < 2 and not source_bound) or not set(conflict["requirement_ids"]) <= valid_ids:
             raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Conflict Group引用无效。")
+
+
+_SCORING_LINKAGE_STOPWORDS = {"服务", "管理", "要求", "项目", "相关", "情况", "内容", "方案", "进行", "提供", "确保", "以及", "或者"}
+_SCORING_LINKAGE_MIN_KEYWORD = 4
+_COMMERCIAL_LABEL_HINT = re.compile(r"报价|业绩|资质|授权|营业执照|信用|资格证明|财务|审计|税收|税务|社保|纳税|信誉|奖项|荣誉")
+
+
+def _scoring_label_keywords(label: str) -> list[str]:
+    """从评分项标题提取实体关键词。
+
+    策略：完整 CJK 串（≤10字直接用）+ 4字滑窗（步长2，兜底长标题的子词匹配）。
+    停用词仅做精确匹配，避免"含项目/服务"的有效实体被误杀。
+    """
+    text = re.sub(r"[（(][^）)]*[分值][）)]", " ", str(label or ""))
+    text = re.sub(r"[\d.\-]+分", " ", text)
+    keywords: list[str] = []
+    for piece in re.findall(r"[一-鿿]{2,}", text):
+        if 2 <= len(piece) <= 10:
+            keywords.append(piece)
+        for start in range(0, max(1, len(piece) - _SCORING_LINKAGE_MIN_KEYWORD + 1), 2):
+            window = piece[start:start + _SCORING_LINKAGE_MIN_KEYWORD]
+            if len(window) == _SCORING_LINKAGE_MIN_KEYWORD:
+                keywords.append(window)
+    unique = []
+    for kw in keywords:
+        if kw in _SCORING_LINKAGE_STOPWORDS:
+            continue
+        if kw not in unique:
+            unique.append(kw)
+    return unique[:8]
+
+
+def build_scoring_linkages(requirements: list[dict[str, Any]], scoring_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """SCORING_REFERENCE_LINKAGE：评分项↔需求行的确定性关联注册表。
+
+    PRECISION FIRST：仅当需求文本命中评分标签的实体关键词（≥4字、非泛词）才建立
+    映射；不能可靠映射就留空，交给上层分诊（MISSING 优于错配）。
+    """
+    linkages: list[dict[str, Any]] = []
+    for item in scoring_items:
+        scoring_id = str(item.get("scoring_item_id") or "")
+        label = str(item.get("label") or "")
+        commercial = bool(_COMMERCIAL_LABEL_HINT.search(label))
+        keywords = _scoring_label_keywords(label)
+        if not keywords:
+            continue
+        for row in requirements:
+            if row.get("confirmation_status") in {"REJECTED_AS_NOT_APPLICABLE", "REJECTED"}:
+                continue
+            if row.get("scoring_item_id"):
+                continue
+            text = str(row.get("normalized_requirement") or "")
+            if not text:
+                continue
+            from planning.planner import is_bid_process_text
+            if is_bid_process_text(text):
+                continue
+            matched = [kw for kw in keywords if kw in text]
+            if not matched:
+                continue
+            best = max(matched, key=len)
+            confidence = min(0.9, 0.5 + 0.05 * len(best) + 0.05 * (len(matched) - 1))
+            linkages.append({
+                "scoring_item_id": scoring_id,
+                "requirement_id": row.get("requirement_id"),
+                "mapping_source": "SCORING_REFERENCE_LINKAGE",
+                "mapping_confidence": round(confidence, 2),
+                "evidence_text": best,
+                "matched_keywords": matched[:4],
+                "technical_or_commercial": "commercial" if commercial else "technical",
+                "mapping_reason": "需求文本命中评分标签实体关键词；规划路由仍由 Requirement Matrix 决定。",
+            })
+    return linkages

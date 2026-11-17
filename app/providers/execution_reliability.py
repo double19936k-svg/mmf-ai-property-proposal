@@ -19,6 +19,9 @@ ERROR_TAXONOMY = {
 }
 
 DEFERRED_BY_ERROR = {
+    "RESPONSE_UNKNOWN": "UNKNOWN_REQUEST_REVIEW",
+    "CALL_BUDGET_EXHAUSTED": "DEFERRED_CALL_BUDGET",
+    "NOT_DISPATCHED": "DEFERRED_NOT_DISPATCHED",
     "PLATFORM_CONFIRMATION_REQUIRED": "DEFERRED_PLATFORM_CONFIRMATION",
     "PROVIDER_AUTH_REQUIRED": "DEFERRED_PROVIDER_AUTH",
     "AUTH_STATE_UNKNOWN": "DEFERRED_AUTH_STATE_UNKNOWN",
@@ -45,6 +48,11 @@ def classify_provider_failure(
         return "PLATFORM_CONFIRMATION_REQUIRED"
     raw_code = str(code or "").upper()
     text = str(message or "").lower()
+    if raw_code in {'CURSOR_RESPONSE_UNKNOWN','ZCODE_RESPONSE_UNKNOWN','ZCODE_REQUEST_INCOMPLETE','ZCODE_NO_AUTOMATIC_RESEND'}:return 'RESPONSE_UNKNOWN'
+    if raw_code in {'CURSOR_RUN_BUDGET','QODER_BUDGET_EXHAUSTED','ZCODE_RUN_BUDGET','ZCODE_PLAN_INVALID','ZCODE_PLAN_IDENTITY'}:return 'CALL_BUDGET_EXHAUSTED'
+    if raw_code == 'CURSOR_WORD_STREAM_INTERRUPTED':
+        return 'NETWORK_ERROR'
+    if raw_code in {'CURSOR_NOT_DISPATCHED','CURSOR_WORD_PREVIOUS_UNKNOWN','ZCODE_NOT_DISPATCHED'}:return 'NOT_DISPATCHED'
     if "max turns reached" in text or raw_code == "CLI_MAX_TURNS":
         return "CLI_MAX_TURNS"
     if raw_code in {"INVALID_OUTPUT", "OUTPUT_CONTRACT_ERROR"} or "structured output" in text or "结构化" in text:
@@ -67,6 +75,25 @@ def classify_provider_failure(
         return "PROVIDER_UNAVAILABLE"
     if raw_code in {"SUCCESS", "PASS"}:
         return SUCCESS
+    # V1.1 Provider 错误分类学：基于状态码/消息的确定性分类（combined 同时扫描
+    # code 与 message，兼容仅传单参的调用方）。
+    combined = (raw_code + " " + text).strip()
+    if any(token in combined for token in ("http 401", "http 403", "401 unauthorized", "403 forbidden", "invalid api key", "invalid_api_key", "authentication denied")):
+        return "AUTH_FAILED"
+    if "429" in combined or "rate limit" in combined or "too many requests" in combined:
+        return "RATE_LIMIT"
+    if any(token in combined for token in ("quota", "insufficient balance", "arrears", "欠费", "额度不足", "余额不足")):
+        return "QUOTA_EXCEEDED"
+    if "model not found" in combined or "no such model" in combined or "model_not_found" in combined:
+        return "MODEL_NOT_FOUND"
+    if "getaddrinfo" in combined or "name resolution" in combined or "dns" in combined:
+        return "DNS_ERROR"
+    if "proxy" in combined:
+        return "PROXY_ERROR"
+    if "timed out" in combined or "timeout" in combined or "超时" in combined:
+        return "TIMEOUT"
+    if any(token in combined for token in ("connection refused", "connection reset", "connection aborted", "unreachable", "network", "远程主机")):
+        return "NETWORK_ERROR"
     return "PROVIDER_RUNTIME_ERROR"
 
 

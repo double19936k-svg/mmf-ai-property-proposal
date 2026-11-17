@@ -63,7 +63,18 @@ def open_run_folder(run_id: str, folder_kind: str = "output") -> dict[str, Any]:
     if kind not in candidates:
         raise PermissionError("不允许打开该目录类型。")
     target = candidates[kind]
-    allowed_root = roots.output_root if kind == "output" else roots.runs_dir
+    if kind=='output':
+        from account_delivery import account_run,project
+        if account_run(value):
+            projected=project({'run_id':value})
+            if projected.get('artifact_available') and projected.get('output_dir'):
+                target=Path(projected['output_dir']).resolve()
+                if not _is_within(target,roots.output_root) and not _is_within(target,run_dir):
+                    raise PermissionError('产物目录不属于当前任务。')
+                allowed_root=roots.output_root if _is_within(target,roots.output_root) else run_dir
+            else:allowed_root=roots.output_root
+        else:allowed_root=roots.output_root
+    else:allowed_root=roots.runs_dir
     if not _is_within(target, allowed_root):
         raise PermissionError("目标目录不在MMF允许的输出范围内。")
     if not target.is_dir():

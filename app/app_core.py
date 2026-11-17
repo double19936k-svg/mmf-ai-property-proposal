@@ -7,18 +7,24 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
 import re
+import traceback
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from providers import ProviderError, ProviderManager, ProviderUnavailableError
+from providers.base import short_stem
+from filesystem_paths import filesystem_path
 from compliance import evaluate_compliance, write_default_rules
 from recovery_orchestrator import leftover_warning_rows, recover_governance, withhold_delivery
 from delivery_state import (
+    DELIVERY_REVIEW,
     DELIVERY_TECHNICAL,
     artifact_physically_invalid,
     classify_fail_soft,
@@ -30,10 +36,11 @@ from delivery_state import (
 )
 from governance import apply_artifact_repairs, apply_local_repairs, artifact_findings_are_locally_recoverable, build_contracts, evaluate_artifact, evaluate_commitments, evaluate_docx_artifact, evaluate_selection, merge_longform_qa, quote_serialization_status, repair_docx_artifact
 from longform.eta import append_latency_sample, build_terminal_latency_sample, estimate_runtime
-from longform.orchestrator import generate_longform
+from longform.orchestrator import FIRST_DRAFT_PAGE_CLASSIFICATION_FILE, generate_longform
 from longform.reasoning import normalize_speed_profile, product_speed_catalog
 from planning.canonical import ensure_requirement_pack
-from planning.planner import PlanningError
+from planning.content_engineering import build_technical_review_summary
+from planning.planner import PlanningError, normalize_document_scale
 from workflow_policy import (
     attach_recommendation_state,
     generation_may_proceed,
@@ -56,9 +63,11 @@ from tender_intake import (
     save_uploads as save_tender_uploads, seed_brief as seed_tender_brief,
     understand_run as understand_tender_run, validate_requirement_pack,
 )
+from tender_intake.fact_sources import brief_project_fields
 
 
 import paths as _mmf_paths
+_mmf_paths.ensure_directories()
 APP_ROOT = _mmf_paths.APP_ROOT
 RUNTIME_ROOT = _mmf_paths.RUNTIME_ROOT
 ASSETS_DIR = _mmf_paths.ASSETS_DIR
@@ -106,6 +115,48 @@ RECOVERABLE_INTEGRITY_RULE_PREFIXES = ("LF-", "QR-")
 
 class MMFError(RuntimeError):
     pass
+
+
+def _refresh_final_scoring_delivery(run_dir: Path, artifact_path: Path,
+                                    final_qa: dict[str, Any]) -> dict[str, Any]:
+    """Only the reopened delivery artifact may supply final scoring evidence."""
+    from planning.scoring_final_evidence import refresh_final_scoring
+
+    try:
+        reading = refresh_final_scoring(
+            run_dir, artifact_path, expected_artifact_sha256=final_qa.get("sha256"))
+    except Exception as exc:
+        reading = {"status": "FAILED", "reason_code": "FINAL_SCORING_CHECK_FAILED",
+                   "error_type": type(exc).__name__, "artifact_path": str(artifact_path),
+                   "may_claim_final_scoring": False, "completed_clean_allowed": False}
+        write_json(run_dir / "final_scoring_report.json", reading)
+    findings = [row for row in final_qa.get("findings") or []
+                if row.get("rule_id") not in {
+                    "FINAL_SCORING_MEASUREMENT_FAILED", "FINAL_SCORING_COVERAGE_BELOW_GATE"}]
+    result = {**final_qa, "final_scoring": reading, "findings": findings}
+    if reading.get("status") == "FAILED":
+        findings.append({"rule_id": "FINAL_SCORING_MEASUREMENT_FAILED", "severity": "BLOCK", "qa_class": "TRUE_BLOCK",
+                         "issue": "成稿评分证据未完成有效核验，生成阶段评分不能作为最终满足证明。",
+                         "reason_code": reading.get("reason_code")})
+        result["status"] = "BLOCK"
+    elif reading.get("status") == "VERIFIED" and not reading.get("completed_clean_allowed"):
+        findings.append({"rule_id": "FINAL_SCORING_COVERAGE_BELOW_GATE", "severity": "NEEDS_REVIEW", "qa_class": "NEEDS_REVIEW",
+                         "issue": "实际成稿的技术评分响应未达到既有验收门槛。",
+                         "coverage": (reading.get("fulfillment") or {}).get("technical_scoring_coverage")})
+        if result.get("status") not in {"BLOCK", "NEEDS_REVIEW"}:
+            result["status"] = "NEEDS_REVIEW"
+    result["summary"] = {**(result.get("summary") or {}),
+                         "block_count": sum(row.get("severity") == "BLOCK" for row in findings),
+                         "needs_review_count": sum(row.get("severity") == "NEEDS_REVIEW" for row in findings),
+                         "warning_count": sum(row.get("severity") == "WARNING" for row in findings)}
+    if "qa_classification" in result:
+        from qa_severity import classify_findings
+        false_positives = [{**row, "qa_class": "FALSE_POSITIVE", "severity": "FALSE_POSITIVE"}
+                           for row in result.get("false_positives") or []]
+        classified = classify_findings([*findings, *false_positives])
+        result["findings"] = classified["findings"]
+        result["qa_classification"] = {**result["qa_classification"], **classified["summary"]}
+    return result
 
 
 def delivery_blocked(compliance: dict[str, Any], commitment: dict[str, Any], artifact_qa: dict[str, Any], quality_regression: dict[str, Any] | None = None) -> bool:
@@ -239,6 +290,8 @@ def _longform_runtime_audit(longform_result: dict[str, Any] | None) -> dict[str,
     performance = result.get("performance") or {}
     capability = result.get("capability") or {}
     effective = capability.get("effective_settings") or {}
+    document_qa = result.get("document_qa") or {}
+    budget_audit = document_qa.get("budget") or word.get("global_repair_budget") or {}
     tokens = _token_accounting(result)
     return {
         "provider_call_count": word.get("provider_call_count") if word.get("provider_call_count") is not None else performance.get("provider_calls_total"),
@@ -280,7 +333,186 @@ def _longform_runtime_audit(longform_result: dict[str, Any] | None) -> dict[str,
         "AVG_OBSERVED_CONCURRENCY": word.get("AVG_OBSERVED_CONCURRENCY"),
         "INITIAL_GENERATION_SECONDS": word.get("INITIAL_GENERATION_SECONDS"),
         "REPAIR_PROVIDER_SECONDS": word.get("REPAIR_PROVIDER_SECONDS"),
+        # §44-46：调用与耗时按初稿/技术重试/修复/补充分别记账，避免"修了三小时"
+        # 被混进初稿耗时里看不见。
+        "INITIAL_PROVIDER_CALLS": word.get("INITIAL_GENERATION_CALLS"),
+        "TECHNICAL_RETRY_CALLS": word.get("TECHNICAL_RETRY_CALLS"),
+        "REPAIR_CALLS": word.get("REPAIR_CALLS"),
+        "SUPPLEMENT_CALLS": word.get("SUPPLEMENT_CALLS"),
+        "TOTAL_CALLS": word.get("TOTAL_CALLS"),
+        "TECHNICAL_RETRY_SECONDS": word.get("TECHNICAL_RETRY_SECONDS"),
+        "SUPPLEMENT_SECONDS": word.get("SUPPLEMENT_SECONDS"),
+        "SELECTIVE_REPAIR_WALL_SECONDS": word.get("SELECTIVE_REPAIR_WALL_SECONDS"),
+        "DOCUMENT_QA_SECONDS": _numeric_seconds(performance.get("document_qa_seconds")),
+        "DEPTH_SUPPLEMENT_SECONDS": _numeric_seconds(performance.get("depth_supplement_seconds")),
+        "DOCUMENT_QA_REPAIR": document_qa.get("status"),
+        "DOCUMENT_QA_ATTEMPTED": document_qa.get("attempted"),
+        "DOCUMENT_QA_REPAIRED": document_qa.get("repaired"),
+        "DOCUMENT_QA_ROUNDS": document_qa.get("rounds"),
+        "FULL_DOCUMENT_REGENERATION": bool(document_qa.get("full_document_regeneration")),
+        "REPAIR_STORM_GUARD": "TRIGGERED" if budget_audit.get("storm_triggered") else "PASS",
+        "QA_PERFORMANCE_WARNING": bool(
+            budget_audit.get("storm_triggered") or budget_audit.get("repair_over_initial")
+        ),
     }
+
+
+def _pagination_audit_fields(run_dir: Path) -> dict[str, Any]:
+    """把真实分页量尺摊平成审计字段。
+
+    页码必须来自渲染后的 Artifact，而不是构建期缓存：本轮的判据就是"目录页码
+    全部为 1 则不能 VERIFIED"，所以没有渲染器时如实留 SKIPPED_*，不猜测。
+    """
+    path = run_dir / "artifact_pagination.json"
+    if not path.is_file():
+        return {}
+    try:
+        report = read_json(path, "artifact_pagination")
+    except Exception as exc:
+        return {"PAGINATION_STATUS": "REPORT_UNREADABLE", "PAGINATION_ERROR": str(exc)[:160]}
+    if not isinstance(report, dict):
+        return {}
+    counts = [int(v) for v in (report.get("page_char_counts") or []) if isinstance(v, (int, float))]
+    rendered = int(report.get("rendered_pages") or 0)
+    return {
+        "PAGINATION_STATUS": report.get("status"),
+        "PAGINATION_RENDERER": report.get("renderer"),
+        "RENDERED_PAGES": rendered,
+        "VISIBLE_EFFECTIVE_CHARS": int(report.get("visible_chars") or 0),
+        "PAGE_CHAR_MEAN": round(sum(counts) / len(counts), 1) if counts else 0.0,
+        "PAGE_CHAR_MIN": min(counts) if counts else 0,
+        "THIN_PAGE_COUNT": int(report.get("thin_page_count") or 0),
+        "EFFECTIVE_CONTENT_PAGES": int(report.get("effective_content_pages") or 0),
+        "MEANINGFUL_PAGE_RATIO": report.get("meaningful_page_ratio"),
+        "TOC_ENTRY_COUNT": int(report.get("toc_entry_count") or 0),
+        "TOC_PAGES_RESOLVED": int(report.get("toc_pages_resolved") or 0),
+        "TOC_PAGES_UNRESOLVED": int(report.get("toc_pages_unresolved") or 0),
+        "TOC_PAGES_REWRITTEN": int(report.get("toc_pages_refreshed") or 0),
+        "TOC_PAGES_VERIFIED": int(report.get("toc_pages_verified") or 0),
+        "TOC_OUTLINE_MARK_COUNT": int(report.get("toc_outline_mark_count") or 0),
+        "ARTIFACT_XML_REWRITTEN": bool(report.get("document_xml_rewritten")),
+        "TOC_IDENTICAL_PAGE_SHARE": report.get("identical_page_share"),
+        "TOC_DISPLAYED_PAGES": report.get("displayed_pages") or [],
+        "TOC_BODY_START_PAGE": report.get("toc_body_start_page"),
+        # §13：只报"404 页"不算说清楚。物理页、技术有效页与六类页数必须并列出现在
+        # 同一份交付审计里；量不到就留 NOT_MEASURED/None，不得折算成 0 冒充"没有超页"。
+        "PAGE_CLASSIFICATION_STATUS": report.get("page_classification_status") or "NOT_MEASURED",
+        "PHYSICAL_PAGES": int(report.get("physical_pages") or rendered or 0),
+        "TECHNICAL_EFFECTIVE_PAGES": report.get("technical_effective_pages"),
+        "NARRATIVE_TECHNICAL_PAGES": report.get("narrative_technical_pages"),
+        "STRUCTURED_TECHNICAL_PAGES": report.get("structured_technical_pages"),
+        "FRONT_MATTER_PAGES": report.get("front_matter_pages"),
+        "BLANK_PAGES": report.get("blank_pages"),
+        "PLACEHOLDER_PAGES": report.get("placeholder_pages"),
+        "PLACEHOLDER_PAGE_RATIO": report.get("placeholder_page_ratio"),
+        "EXCLUDED_SCOPE_PAGES": report.get("excluded_scope_pages"),
+        # §41：凑页数最顺手的资信/证书/业绩/履历附件页要单独立一个字段，
+        # 否则"2 页报价条款"和"2 页证书附件"在审计里长得一模一样。
+        # CREDENTIAL_ATTACHMENT_PAGES 只数"资信词占多数"的那一页（= §41 禁的形状）；
+        # 正文里顺带提一句"合同复印件"的页记在 ..._MENTIONED 里点名，两个数都要在。
+        "EXCLUDED_SCOPE_GROUP_HITS": report.get("excluded_scope_group_hits"),
+        "CREDENTIAL_ATTACHMENT_PAGES": report.get("credential_attachment_pages"),
+        "CREDENTIAL_ATTACHMENT_PAGES_MENTIONED": report.get("credential_attachment_pages_present"),
+        "CREDENTIAL_ATTACHMENT_PAGE_DETAILS": report.get("credential_attachment_page_details"),
+        "NON_TECHNICAL_PAGE_RATIO": report.get("non_technical_page_ratio"),
+        "PAGE_BASIS": report.get("page_basis"),
+        "LAYOUT_BASIS": report.get("layout_basis"),
+        "TECHNICAL_PAGE_COUNT_BOUND": report.get("technical_page_count_bound") or "UNKNOWN",
+        "CHARS_PER_TECHNICAL_PAGE": report.get("chars_per_technical_page"),
+    }
+
+
+def _technical_review_summary_measurement(run_dir: Path,
+                                          pagination_report: dict[str, Any] | None
+                                          ) -> tuple[dict[str, Any], str]:
+    """§41/§44：Technical Review Summary 的页数取哪一层实测。
+
+    优先最终 DOCX 的逐页分类；本机没有渲染器时退回初稿渲染那一层，并把 basis 写清楚，
+    让"最终文件没量过"留在证据里，而不是被悄悄替换成 0。
+    """
+    if (pagination_report or {}).get("page_classification_status") == "MEASURED":
+        return pagination_report, "FINAL_DOCX_PAGINATION"
+    path = run_dir / FIRST_DRAFT_PAGE_CLASSIFICATION_FILE
+    if path.is_file():
+        try:
+            return read_json(path, "technical_review_page_classification"), "FIRST_DRAFT_PAGINATION"
+        except Exception:
+            return {}, "NOT_MEASURED"
+    return {}, "NOT_MEASURED"
+
+
+def _write_technical_review_summary(run_dir: Path, gate: dict[str, Any],
+                                    pagination_report: dict[str, Any] | None = None) -> dict[str, Any]:
+    """§44：随件写一份**内部** Technical Review Summary（只列待投标人确认的技术事实）。"""
+    measured, basis = _technical_review_summary_measurement(run_dir, pagination_report)
+
+    def count(key: str) -> int | None:
+        value = measured.get(key)
+        return None if value is None else int(value)
+
+    summary = build_technical_review_summary(
+        gate,
+        excluded_scope_pages=count("excluded_scope_pages"),
+        credential_attachment_pages=count("credential_attachment_pages"),
+        credential_attachment_pages_mentioned=count("credential_attachment_pages_present"),
+        credential_attachment_page_details=measured.get("credential_attachment_page_details") or None,
+        page_basis=basis,
+    )
+    write_json(run_dir / "technical_review_summary.json", summary)
+    return summary
+
+
+def _table_audit_fields(run_dir: Path) -> dict[str, Any]:
+    """§29：Tables Planned / Rendered / Meaningful / Placeholder 必须分开报。
+
+    两份来源拼在一起：装配台账（build_docx 子进程写的，知道"计划了几张、删了几张、
+    为什么删"）与交付件实测（final_artifact_qa 写的，知道"文件里真实长什么样"）。
+    只报其中一个都会说谎 —— 前者不含后续修复，后者不知道被删掉的那些。
+    """
+    fields: dict[str, Any] = {}
+    build_path = run_dir / "artifact_table_build_metrics.json"
+    if build_path.is_file():
+        try:
+            build = read_json(build_path, "artifact_table_build_metrics")
+        except Exception as exc:
+            build = {}
+            fields["TABLE_BUILD_METRICS_ERROR"] = str(exc)[:160]
+        if isinstance(build, dict) and build:
+            fields.update({
+                "TABLES_PLANNED": int(build.get("tables_planned") or 0),
+                "TABLES_RENDERED": int(build.get("tables_rendered") or 0),
+                "TABLES_DROPPED": int(build.get("tables_dropped") or 0),
+                "TABLES_COMPACTED": int(build.get("tables_compacted") or 0),
+                "TABLES_BIDDER_FILL": int(build.get("tables_bidder_fill") or 0),
+                # 台账里这两个是"空"格，不是"/、待填写"那类占位符格 —— 名字必须对上，
+                # 否则报告里说"占位格 1471"就是在换一个口径冒充另一个口径。
+                "TABLE_EMPTY_CELLS_PLANNED": int(build.get("planned_empty_cells") or 0),
+                "TABLE_EMPTY_CELLS_RENDERED": int(build.get("rendered_empty_cells") or 0),
+                "TABLE_PLACEHOLDER_CELLS_PLANNED": int(build.get("planned_placeholder_cells") or 0),
+                "TABLE_PLACEHOLDER_CELLS_RENDERED": int(build.get("rendered_placeholder_cells") or 0),
+                "TABLE_CELLS_PLANNED": int(build.get("planned_cells") or 0),
+                "TABLE_CELLS_RENDERED": int(build.get("rendered_cells") or 0),
+                "DROPPED_TABLE_TITLES": [str(row.get("title") or "")[:60]
+                                         for row in (build.get("dropped_tables") or [])][:20],
+            })
+    qa_path = run_dir / "final_artifact_qa.json"
+    if qa_path.is_file():
+        try:
+            measured = (read_json(qa_path, "final_artifact_qa") or {}).get("tables") or {}
+        except Exception:
+            measured = {}
+        if measured:
+            fields.update({
+                "TABLES_MEANINGFUL": int(measured.get("tables_meaningful") or 0),
+                "TABLES_EMPTY_SCAFFOLD": int(measured.get("tables_empty_scaffold") or 0),
+                "TABLES_PLACEHOLDER_HEAVY": int(measured.get("tables_placeholder_heavy") or 0),
+                "TABLES_DUPLICATE_ROWS": int(measured.get("tables_duplicate_rows") or 0),
+                "TABLE_MEANINGFUL_CELL_RATIO": measured.get("meaningful_cell_ratio_overall"),
+                "TABLE_EMPTY_CELL_RATIO": measured.get("empty_cell_ratio_overall"),
+                "MEANINGFUL_STRUCTURED_TABLE_CHARS": int(measured.get("meaningful_table_chars") or 0),
+                "MEANINGFUL_TABLE_SHARE": measured.get("meaningful_table_share"),
+            })
+    return fields
 
 
 def _write_run_audit(run_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -294,6 +526,28 @@ def _write_run_audit(run_dir: Path, payload: dict[str, Any]) -> dict[str, Any]:
     merged.setdefault("qa_seconds", 0.0)
     write_json(run_dir / "run_audit.json", merged)
     return merged
+
+
+def _write_generation_error_diagnostics(run_dir: Path, run_id: str, exc: BaseException, *, phase: str, provider: str = "", recoverable: bool = True, section_id: str | None = None, content_unit_id: str | None = None, batch_id: str | None = None) -> str:
+    """Persist actionable, secret-free diagnostics for every generation exception."""
+    error_id = f"ERR-{uuid.uuid4().hex[:8].upper()}"
+    frames = traceback.extract_tb(exc.__traceback__) if exc.__traceback__ else []
+    frame = frames[-1] if frames else None
+    raw_trace = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    sanitized = re.sub(r"(?i)(authorization|api[_ -]?key|token)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", raw_trace)
+    payload = {
+        "error_id": error_id, "timestamp": now_iso(), "run_id": run_id,
+        "phase": phase, "subphase": phase, "exception_type": type(exc).__name__,
+        "exception_message": str(exc)[:500], "source_file": Path(frame.filename).name if frame else None,
+        "function": frame.name if frame else None, "line": frame.lineno if frame else None,
+        "section_id": section_id, "content_unit_id": content_unit_id, "batch_id": batch_id,
+        "provider": provider, "resume_state": "recoverable_partial_run" if recoverable else "terminal",
+        "recoverable": recoverable, "traceback": sanitized[:12000],
+    }
+    write_json(run_dir / "error_trace.json", payload)
+    (run_dir / "log").mkdir(parents=True, exist_ok=True)
+    (run_dir / "log" / "error.log").write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return error_id
 
 
 def _blocked_message(compliance: dict[str, Any], commitment: dict[str, Any], artifact_qa: dict[str, Any], repair_attempts: int = 0) -> str:
@@ -375,18 +629,154 @@ def _checked(path: Path) -> Path:
     return resolved
 
 
+def _path_label(path: Path) -> str:
+    """审计与报告里记的是"这个文件在哪"，能否折算成包内相对路径只是排版问题：
+    把数据根指到包外是受支持的部署姿态（dist 侧 E2E、只读安装目录），旧的裸 relative_to
+    在那种姿态下抛 ValueError，把一次合法读取/一次已完成的生成本身变成失败。"""
+    try:
+        return path.resolve().relative_to(RUNTIME_ROOT).as_posix()
+    except ValueError:
+        return str(path)
+
+
+_ARTIFACT_QA_RANK = {"PASS": 0, "WARNING": 1, "NEEDS_REVIEW": 2, "BLOCK": 3}
+
+
+def _attempt_account_review_repair(final_path: Path, run_dir: Path, baseline: dict[str, Any],
+                                   evaluate, pagination: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Try one local repair on a copy and keep it only after rechecking delivery evidence."""
+    from longform.pagination import refresh_with_retry
+    from planning.scoring_final_evidence import refresh_final_scoring
+
+    def findings(report):
+        return Counter((row.get("rule_id"), row.get("qa_class") or row.get("severity"), row.get("issue"))
+                       for row in report.get("findings") or []
+                       if row.get("rule_id") not in {
+                           "FINAL_SCORING_MEASUREMENT_FAILED", "FINAL_SCORING_COVERAGE_BELOW_GATE"})
+
+    report = {"status": "NO_CHANGE", "provider_calls": 0}
+    try:
+        with tempfile.TemporaryDirectory(dir=run_dir, prefix=".review_repair_") as work:
+            candidate = Path(work) / "candidate.docx"
+            shutil.copyfile(final_path, candidate)
+            changes = repair_docx_artifact(candidate)["repairs"]
+            report["repairs"] = changes
+            if not any(count for rule, count in changes.items() if rule != "empty_heading_skipped"):
+                return report, pagination
+            if artifact_physically_invalid(candidate):
+                return {**report, "status": "REJECTED", "reason": "INVALID_FILE"}, pagination
+            new_pagination = refresh_with_retry(candidate, attempts=1)
+            if new_pagination.get("status") != "REFRESHED":
+                return {**report, "status": "REJECTED", "reason": "PAGINATION_NOT_VERIFIED"}, pagination
+            after = evaluate(candidate)
+            before_findings, after_findings = findings(baseline), findings(after)
+            if (not (after_findings < before_findings)
+                    or _ARTIFACT_QA_RANK.get(after.get("status"), 3) > _ARTIFACT_QA_RANK.get(baseline.get("status"), 3)):
+                return {**report, "status": "REJECTED", "reason": "QA_NOT_IMPROVED"}, pagination
+            before_scoring = baseline.get("final_scoring") or {}
+            after_scoring = refresh_final_scoring(
+                run_dir, candidate, expected_artifact_sha256=after.get("sha256"), persist=False)
+            old_coverage = (before_scoring.get("fulfillment") or {}).get("technical_scoring_coverage")
+            new_coverage = (after_scoring.get("fulfillment") or {}).get("technical_scoring_coverage")
+            if (after_scoring.get("status") != before_scoring.get("status")
+                    or after_scoring.get("status") == "FAILED"
+                    or (before_scoring.get("completed_clean_allowed") and not after_scoring.get("completed_clean_allowed"))
+                    or (old_coverage is not None and (new_coverage is None or new_coverage < old_coverage))):
+                return {**report, "status": "REJECTED", "reason": "SCORING_NOT_PRESERVED"}, pagination
+            candidate.replace(final_path)
+            return {**report, "status": "APPLIED"}, {**new_pagination, "artifact_path": str(final_path)}
+    except Exception as exc:
+        return {**report, "status": "FAILED", "error_type": type(exc).__name__}, pagination
+
+
+_NON_FORMAT_REVIEW = re.compile(r"页数|页码|PAGE|SCORING|评分|覆盖|FACT|事实|出处|PROVENANCE")
+
+
+def _review_issues_are_not_format(report: dict[str, Any]) -> bool:
+    findings = list((report or {}).get("findings") or [])
+    if not findings:
+        return False
+    return all(_NON_FORMAT_REVIEW.search(
+        f"{row.get('rule_id') or ''}{row.get('issue') or ''}{row.get('qa_class') or ''}") for row in findings)
+
+
+def _record_account_review_repair(final_path: Path, run_dir: Path, baseline: dict[str, Any],
+                                  evaluate, pagination: dict[str, Any], provider_name: str,
+                                  delivery_status: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    """One local format repair for the whole task, including a review found only at final delivery."""
+    if delivery_status != DELIVERY_REVIEW:
+        return None, pagination
+    from providers.cursor_account import is_cursor_provider
+    if provider_name not in {"qoder_account", "zcode_cn"} and not is_cursor_provider(provider_name):
+        return None, pagination
+    record_path = run_dir / "local_review_repair.json"
+    if record_path.is_file():
+        saved = read_json(record_path)
+        return saved if isinstance(saved, dict) else None, pagination
+    if _review_issues_are_not_format(baseline):
+        report = {"status": "NO_FORMAT_FIX", "provider_calls": 0,
+                  "reason": "页数、评分覆盖或项目事实不足，保留原复核原因"}
+        write_json(record_path, report)
+        return report, pagination
+    report, pagination = _attempt_account_review_repair(final_path, run_dir, baseline, evaluate, pagination)
+    write_json(record_path, report)
+    return report, pagination
+
+
+def _external_delivery_eligible(cleanup: dict[str, Any], external_qa: dict[str, Any],
+                                direct_qa: dict[str, Any]) -> bool:
+    """对外清理件只有在已重排页码、无残留且 QA 不差于直接件时才可交付。"""
+    status = str(cleanup.get("status") or "")
+    if status not in {"CLEANED", "NO_CHANGES"}:
+        return False
+    if int(cleanup.get("residual_count") or 0) != 0 or not external_qa:
+        return False
+    direct_rank = _ARTIFACT_QA_RANK.get(str((direct_qa or {}).get("status")), 3)
+    external_rank = _ARTIFACT_QA_RANK.get(str(external_qa.get("status")), 3)
+    if external_rank > direct_rank:
+        return False
+    # 文字改动会移动分页；未在对外副本上重测出页码时不得交付缓存页码的副本。
+    return status == "NO_CHANGES" or str((cleanup.get("pagination") or {}).get("status") or "") == "REFRESHED"
+
+
 def _audit_read(path: Path, purpose: str) -> None:
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-    relative = _checked(path).relative_to(RUNTIME_ROOT).as_posix()
-    record = {"at": now_iso(), "operation": "read", "purpose": purpose, "relative_path": relative}
+    checked = _checked(path)
+    # 分页实测读不回来就退化成 NOT_MEASURED，而"没量过"在交付复核里和
+    # "量过且没问题"长得一模一样，所以这里必须总能记下一个可用的标签。
+    record = {"at": now_iso(), "operation": "read", "purpose": purpose, "relative_path": _path_label(checked)}
     with ACCESS_AUDIT_FILE.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+_TRANSIENT_READ_ATTEMPTS = 6
+
+
+def _read_text(checked: Path) -> str:
+    """读盘要能扛住"同一次原子替换"的撞车。
+
+    Windows 上 os.replace 需要目标文件的 DELETE 访问，而 CPython 的 open() 开出的句柄
+    不带 FILE_SHARE_DELETE：读的一方句柄还在，写的一方就报 [WinError 5]；反过来正被
+    替换的那一瞬间去 open()，读的一方拿到 [Errno 13] Permission denied。审计类文件天生
+    一边写一边读（历史页/状态页轮询 run_audit.json，生成线程同时在收尾写它），一次撞车
+    就把整条交付判成失败——MMF-006E-R2 挂到 Round 3 的那条"flow_b 偶发"就是这个，
+    量尺见 MMF007C_R3_20260921/r3_run_audit_readwrite_race_probe.py（25 秒内 4155 次读里
+    撞出 7 次，签名与现场一致）。只重试瞬时共享冲突，预算用尽照原样抛，不把真不可读咽掉。
+    """
+    last_exc: PermissionError | None = None
+    for attempt in range(_TRANSIENT_READ_ATTEMPTS):
+        try:
+            return filesystem_path(checked).read_text(encoding="utf-8-sig")
+        except PermissionError as exc:
+            last_exc = exc
+            time.sleep(0.03 * (attempt + 1))
+    raise last_exc
 
 
 def read_json(path: Path, purpose: str = "runtime_data") -> Any:
     checked = _checked(path)
     _audit_read(checked, purpose)
-    return json.loads(checked.read_text(encoding="utf-8-sig"))
+    return json.loads(_read_text(checked))
 
 
 _JSON_WRITE_LOCKS: dict[str, threading.Lock] = {}
@@ -405,15 +795,17 @@ def _json_write_lock(path: Path) -> threading.Lock:
 
 def write_json(path: Path, value: Any) -> None:
     checked = _checked(path)
-    checked.parent.mkdir(parents=True, exist_ok=True)
+    filesystem_path(checked.parent).mkdir(parents=True, exist_ok=True)
     payload = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
     last_exc: OSError | None = None
     with _json_write_lock(checked):
         for attempt in range(8):
-            tmp = checked.with_name(f"{checked.name}.{os.getpid()}.{threading.get_ident()}.{attempt}.tmp")
+            # 临时名必须留在 MAX_PATH=260 以内：完整文件名再拼 pid/tid 会让深层
+            # Run 目录里的每一次写盘失败。保留扩展名避免同目录同名不同后缀相撞。
+            tmp = checked.with_name(f".{short_stem(checked, 24)}.{os.getpid() % 100000}.{uuid.uuid4().hex[:6]}{checked.suffix}.tmp")
             try:
-                tmp.write_text(payload, encoding="utf-8")
-                os.replace(tmp, checked)
+                filesystem_path(tmp).write_text(payload, encoding="utf-8")
+                os.replace(filesystem_path(tmp), filesystem_path(checked))
                 return
             except OSError as exc:
                 last_exc = exc
@@ -431,12 +823,20 @@ def write_json(path: Path, value: Any) -> None:
 def _write_generation_phase(run_dir: Path, phase: str, message: str, *, recoverable: bool = True) -> None:
     stage_by_phase = {
         "GENERATING": "generation_preparation",
+        "TECHNICAL_RETRYING": "generation_preparation",
         "SECTION_QA": "content_and_compliance_qa",
         "AUTO_REPAIRING": "section_repair",
         "RECHECKING": "content_and_compliance_qa",
+        "DOCUMENT_QA": "content_and_compliance_qa",
+        "SELECTIVE_REPAIR": "section_repair",
+        "DEPTH_SUPPLEMENTING": "section_repair",
         "FACT_COMMITMENT_CHECK": "content_and_compliance_qa",
+        "GENERATING_IMAGES": "ppt_image_generation",
         "ASSEMBLING": "artifact_assembly",
         "FINAL_ARTIFACT_QA": "final_artifact_qa",
+        "LOCAL_REVIEW_REPAIR": "final_artifact_qa",
+        "LOCAL_NORMALIZING": "local_normalization",
+        "FIRST_DRAFT": "first_draft_assembly",
     }
     if phase in stage_by_phase:
         set_active_stage(run_dir, stage_by_phase[phase])
@@ -451,10 +851,43 @@ def _write_generation_phase(run_dir: Path, phase: str, message: str, *, recovera
     })
 
 
+def render_first_draft_file(run_dir: Path, brief: dict[str, Any], artifact: dict[str, Any]) -> dict[str, Any]:
+    """把初稿渲染成可下载 DOCX，发生在任何文档级 QA 判定之前。
+
+    渲染失败只记录状态：初稿的"存在且可下载"优先于"完美"，正式交付文件仍由
+    ASSEMBLING 阶段产出，这里不覆盖它。
+    """
+    if str(brief.get("medium") or "") != "WORD":
+        return {"status": "NOT_APPLICABLE", "path": None}
+    draft_dir = run_dir / "first_draft"
+    target = draft_dir / "FIRST_DRAFT.docx"
+    try:
+        content_path = draft_dir / "artifact_content.json"
+        write_json(content_path, {"brief": brief, "artifact": artifact})
+        runtime = _runtime()
+        env = os.environ.copy()
+        env["RUNTIME_NODE"] = str(runtime.get("node_executable", ""))
+        env["RUNTIME_NODE_MODULES"] = str(runtime.get("node_modules", ""))
+        env["RUNTIME_BIN_DIR"] = str(runtime.get("bin_dir", ""))
+        started = time.monotonic()
+        completed = subprocess.run(
+            [str(runtime.get("python_executable") or sys.executable), str(APP_ROOT / "build_docx.py"), str(content_path), str(target)],
+            cwd=str(APP_ROOT), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, shell=False,
+        )
+        elapsed = round(time.monotonic() - started, 3)
+        ok = completed.returncode == 0 and target.is_file() and target.stat().st_size > 0
+        record_stage_duration(run_dir, "first_draft_assembly", elapsed, outcome="completed" if ok else "failed")
+        if not ok:
+            return {"status": "RENDER_FAILED", "path": None, "returncode": completed.returncode, "error": (completed.stderr or "")[-300:]}
+        return {"status": "DOWNLOADABLE", "path": str(target), "bytes": target.stat().st_size, "seconds": elapsed}
+    except Exception as exc:
+        return {"status": "RENDER_FAILED", "path": None, "error": str(exc)[:300]}
+
+
 def read_jsonl(path: Path, purpose: str = "asset") -> list[dict[str, Any]]:
     checked = _checked(path)
     _audit_read(checked, purpose)
-    return [json.loads(line) for line in checked.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
+    return [json.loads(line) for line in _read_text(checked).splitlines() if line.strip()]
 
 
 def verify_assets() -> dict[str, Any]:
@@ -538,6 +971,7 @@ def validate_brief(brief: dict[str, Any]) -> dict[str, Any]:
     clean = {str(key): value for key, value in brief.items()}
     clean["fact_boundary"] = "表单中的全部数字均为current_project_fact；历史KU数字不得迁移。"
     clean["speed_profile"] = normalize_speed_profile(brief.get("speed_profile") or "balanced")
+    clean["document_scale"] = normalize_document_scale(brief.get("document_scale") or "regular_solution")
     if brief.get("max_parallelism") not in {None, ""}:
         try:
             clean["max_parallelism"] = max(1, min(3, int(brief.get("max_parallelism"))))
@@ -609,6 +1043,8 @@ def _reuse_recommendation(run_dir: Path) -> dict[str, Any] | None:
 
 
 def _recommend_knowledge_impl(brief_input: dict[str, Any], run_id: str, run_dir: Path) -> dict[str, Any]:
+    from providers.cursor_account import is_cursor_provider
+
     brief = validate_brief(brief_input)
     provider = provider_manager().get(brief["provider_name"], require_available=False)
     catalog = corpus_catalog()
@@ -623,8 +1059,13 @@ def _recommend_knowledge_impl(brief_input: dict[str, Any], run_id: str, run_dir:
     else:
         request = {
             "task_id": f"{run_id}-recommend",
+            "run_id": run_id,
+            "generation_mode": "knowledge_recommendation",
             "system_prompt": "你是AI物业方案智能体的封闭包知识推荐引擎。只能使用提示中的显式输入；不读文件、不联网、不调用工具；只输出一个完整JSON对象。",
-            "prompt": _recommendation_prompt(brief, catalog),
+            "prompt": _recommendation_prompt(
+                _compact_generation_brief(brief) if is_cursor_provider(brief["provider_name"]) else brief,
+                catalog,
+            ),
             "brief": brief,
             "catalog": catalog,
             "reasoning_effort": "low",
@@ -640,6 +1081,11 @@ def _recommend_knowledge_impl(brief_input: dict[str, Any], run_id: str, run_dir:
             },
         }
         try:
+            if brief.get("medium") == "PPT" and brief.get("provider_name") == "qoder_internal":
+                from planning.ppt_delivery import RECOMMEND_SECONDS
+                request["generation_mode"] = "ppt_recommend"
+                request["response_deadline_epoch"] = time.time() + RECOMMEND_SECONDS
+                request["prompt"] += "\n本次PPT推荐最多5条直接相关知识，每条summary和reason各不超过40字；缺信息合并列出，不展开写方案。"
             result = provider.recommend_knowledge(request, _next_provider_task_dir(run_dir, "provider_recommendation"))
         except (ProviderError, ProviderUnavailableError) as exc:
             provider_failed = True
@@ -688,6 +1134,23 @@ def _recommend_knowledge_impl(brief_input: dict[str, Any], run_id: str, run_dir:
 def _recommend_knowledge_in_run(brief_input: dict[str, Any], run_id: str, run_dir: Path) -> dict[str, Any]:
     with track_stage(run_dir, "knowledge_recommendation"):
         return _recommend_knowledge_impl(brief_input, run_id, run_dir)
+
+
+def retry_knowledge_recommendation(run_id: str) -> dict[str, Any]:
+    """Ask the same run's account again. Does not create a run or reuse a failed selection."""
+    run_dir = _checked(RUNS_DIR / run_id)
+    brief_path = run_dir / "brief.json"
+    if not brief_path.is_file():
+        raise MMFError("尚未形成项目简报，不能重新推荐。")
+    if (run_dir / "generation_status.json").is_file():
+        raise MMFError("正式初稿已开始，不再另行请求知识推荐。")
+    brief = read_json(brief_path, "brief")
+    from providers.openai_compatible import bind_run, unbind_run
+    bind_run(run_id)
+    try:
+        return _recommend_knowledge_in_run(brief, run_id, run_dir)
+    finally:
+        unbind_run(run_id)
 
 
 def recommend_knowledge(brief_input: dict[str, Any]) -> dict[str, Any]:
@@ -884,12 +1347,23 @@ def process_tender_run(run_id: str, provider_name: str | None = None) -> dict[st
         finish_workflow(run_dir, "failed")
         raise
     recognition_success = result["status"].get("recognition_outcome") == "AI_RECOGNITION_SUCCESS"
+    from tender_intake.cursor_recognition_recovery import WAITING
+    recognition_state = ("PASS" if recognition_success else
+                         "WAITING_FOR_USER" if result["status"].get("recognition_outcome") == WAITING else
+                         "FAILED_WITH_LOCAL_FALLBACK")
     _write_mmf006a_state(
-        run_id=run_id, provider_test={selected_provider: "PASS" if recognition_success else "FAILED_WITH_LOCAL_FALLBACK"},
+        run_id=run_id, provider_test={selected_provider: recognition_state},
         pack={"status": result["pack"]["status"], "requirements": len(result["pack"]["requirements"])},
         checkpoints={"A3_PACK_BUILDER_PASS": True, "A4_PROVIDER_UNDERSTANDING_PASS": recognition_success},
     )
-    return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": result["pack"]["status"], "pack": result["pack"], "checkpoint": result["status"]}
+    pack = {**result["pack"], "brief_project_fields": brief_project_fields(result["pack"], extraction)}
+    return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": pack["status"], "pack": pack, "checkpoint": result["status"]}
+
+
+def _tender_pack_for_brief(pack: dict[str, Any], run_dir: Path) -> dict[str, Any]:
+    extraction_path = run_dir / "tender" / "extraction.json"
+    extraction = read_json(extraction_path, "tender_extraction") if extraction_path.is_file() else {}
+    return {**pack, "brief_project_fields": brief_project_fields(pack, extraction)}
 
 
 def load_tender_run(run_id: str) -> dict[str, Any]:
@@ -898,13 +1372,16 @@ def load_tender_run(run_id: str) -> dict[str, Any]:
         raise MMFError("Run不存在。")
     tender_dir = run_dir / "tender"
     status = read_tender_status(run_id)
+    from tender_intake.cursor_recognition_recovery import FALLBACK, WAITING, pending_choice
+    if status.get("recognition_outcome") == FALLBACK and pending_choice(run_dir, status):
+        status = {**status, "recognition_outcome": WAITING}
     pack = None
     pack_path = tender_dir / "requirement_pack.json"
     if pack_path.is_file() and str(status.get("pack_status") or "") != "understanding":
         try:
             loaded = json.loads(pack_path.read_text(encoding="utf-8-sig"))
             if isinstance(loaded, dict):
-                pack = loaded
+                pack = _tender_pack_for_brief(loaded, run_dir)
         except (OSError, json.JSONDecodeError, TypeError):
             pack = None
     return {"run_id": run_id, "status": status, "pack": pack, "brief_seeded": (run_dir / "brief.json").exists(), "knowledge_recommended": (run_dir / "knowledge_selection.json").exists()}
@@ -916,23 +1393,34 @@ def acknowledge_tender_local_fallback(run_id: str) -> dict[str, Any]:
     if not run_dir.is_dir() or not pack_path.is_file():
         raise MMFError("本地解析结果不存在，请重新识别。")
     status = read_tender_status(run_id)
-    if status.get("recognition_outcome") != "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK":
+    from tender_intake.cursor_recognition_recovery import FALLBACK, WAITING
+    if status.get("recognition_outcome") not in {FALLBACK, WAITING}:
         raise MMFError("当前任务不需要确认本地解析降级。")
     status.update({
+        "recognition_outcome": FALLBACK,
         "local_fallback_confirmed": True,
         "local_fallback_confirmed_at": now_iso(),
         "message": "已确认继续使用本地解析结果；生成完整方案前仍应人工核对关键要求。",
     })
     write_json(run_dir / "tender" / "status.json", status)
-    return {"run_id": run_id, "status": status, "pack": read_json(pack_path, "tender_requirement_pack")}
+    pack = _tender_pack_for_brief(read_json(pack_path, "tender_requirement_pack"), run_dir)
+    return {"run_id": run_id, "status": status, "pack": pack}
 
 
 def confirm_tender_run(run_id: str, decisions: dict[str, Any], brief_options: dict[str, Any]) -> dict[str, Any]:
+    # Validate the externally supplied vocabulary before mutating the Pack.
+    if brief_options.get("scenario") not in SCENARIOS:
+        raise MMFError("请选择方案场景。")
+    if brief_options.get("medium") and brief_options["medium"] not in MEDIA:
+        raise MMFError("输出媒介必须明确选择WORD或PPT。")
     run_dir = _checked(RUNS_DIR / run_id)
     pack_path = run_dir / "tender" / "requirement_pack.json"
     if not pack_path.is_file():
         raise MMFError("Requirement Pack尚未生成。")
     tender_status = read_tender_status(run_id)
+    from tender_intake.cursor_recognition_recovery import WAITING, pending_choice
+    if tender_status.get("recognition_outcome") == WAITING or pending_choice(run_dir, tender_status):
+        raise MMFError("AI需求识别已暂停，请先在「账号任务进度与处理」选择处理方式。")
     full_proposal = str(brief_options.get("scenario") or "") in FULL_PROPOSAL_SCENARIOS
     fallback_requires_confirmation = (
         tender_status.get("recognition_outcome") == "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK"
@@ -940,6 +1428,8 @@ def confirm_tender_run(run_id: str, decisions: dict[str, Any], brief_options: di
     )
     if full_proposal and fallback_requires_confirmation:
         raise MMFError("AI需求识别未完成。请先重新识别，或明确选择‘继续使用本地解析结果’后再生成完整方案。")
+    from providers.openai_compatible import bind_run, unbind_run
+    bind_run(run_id)
     try:
         with track_stage(run_dir, "brief_generation", workflow_kind="tender_file"):
             pack = read_json(pack_path, "tender_requirement_pack")
@@ -948,20 +1438,25 @@ def confirm_tender_run(run_id: str, decisions: dict[str, Any], brief_options: di
                 decisions["accept_remaining"] = True
             confirmed = apply_tender_confirmation(pack, decisions)
             validate_requirement_pack(confirmed)
+            view_pack = _tender_pack_for_brief(confirmed, run_dir)
+            brief = validate_brief(seed_tender_brief(
+                confirmed, brief_options, project_fields=view_pack["brief_project_fields"],
+            )) if confirmed["confirmation"]["ready_for_brief_seed"] else None
             write_json(pack_path, confirmed)
             write_json(run_dir / "tender" / "confirmation.json", {"confirmed_at": now_iso(), "decisions": decisions, "pack_version": confirmed.get("pack_version")})
             if not confirmed["confirmation"]["ready_for_brief_seed"]:
                 write_json(run_dir / "tender" / "status.json", {"run_id": run_id, "stage": "A5_CONFIRMATION_REQUIRED", "upload_completed": True, "extraction_completed": True, "pack_status": "blocked_clarification", "updated_at": now_iso()})
-                return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": "blocked_clarification", "pack": confirmed, "message": "仍有高影响要求、冲突、疑似模板或缺失事实待确认。"}
-            brief = seed_tender_brief(confirmed, brief_options)
-            write_json(run_dir / "brief.json", validate_brief(brief))
+                return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": "blocked_clarification", "pack": view_pack, "message": "仍有高影响要求、冲突、疑似模板或缺失事实待确认。"}
+            write_json(run_dir / "brief.json", brief)
             _write_mmf006a_state(run_id=run_id, confirmation={"status": "PASS"}, brief_seed={"status": "PASS"}, checkpoints={"A5_CONFIRMATION_UX_PASS": True, "A6_BRIEF_SEED_PASS": True})
         recommendation = _recommend_knowledge_in_run(brief, run_id, run_dir)
         write_json(run_dir / "tender" / "status.json", {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "stage": "MMF006A_COMPLETED_PENDING_TODD_ACCEPTANCE", "upload_completed": True, "extraction_completed": True, "pack_status": "ready_for_plan", "confirmation_completed": True, "brief_seed_completed": True, "knowledge_recommendation_completed": True, "updated_at": now_iso()})
-        return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": "MMF006A_completed_pending_todd_acceptance", "pack": confirmed, "brief": brief, "recommendation": recommendation}
+        return {"run_id": run_id, "workflow_id": workflow_audit_fields(run_dir).get("workflow_id"), "status": "MMF006A_completed_pending_todd_acceptance", "pack": view_pack, "brief": brief, "recommendation": recommendation}
     except Exception:
         finish_workflow(run_dir, "failed")
         raise
+    finally:
+        unbind_run(run_id)
 
 
 def _compact_generation_brief(brief: dict[str, Any]) -> dict[str, Any]:
@@ -1050,6 +1545,77 @@ def _public_positive(catalog: dict[str, Any], ids: list[str]) -> list[dict[str, 
 def _public_guardrails(catalog: dict[str, Any], ids: list[str]) -> list[dict[str, Any]]:
     by_id = {row["ku_id"]: row for row in catalog["guardrail"]}
     return [{key: by_id[ku_id][key] for key in ("ku_id", "core_knowledge", "reason", "risk_tags")} for ku_id in ids if ku_id in by_id]
+
+
+def _attach_ppt_images(run_dir: Path, artifact: dict[str, Any], writing_provider: str = "") -> None:
+    """Use reviewed assets first and fill missing scenes with the selected provider."""
+    from first_run import current_settings, resolve_image_provider
+    from providers.account_image import ACCOUNT_IMAGE_NAMES
+
+    settings = current_settings()
+    image_name = resolve_image_provider(settings, writing_provider)
+    images_enabled = bool(settings.get("enable_image_provider", True))
+    if artifact.get("profile_p_contract"):
+        from project_assets import attach_project_images
+        from providers.account_image import fill_planned_scenes
+        from functools import partial
+
+        fill_scenes = None
+        scene_policy = "image_service_disabled" if not images_enabled else "other_image_provider"
+        if images_enabled and image_name in ACCOUNT_IMAGE_NAMES:
+            provider = provider_manager().providers.get(image_name)
+            scene_policy = "provider_not_registered"
+            if provider is not None:
+                def show_progress(current: int, total: int) -> None:
+                    _write_generation_phase(run_dir, "GENERATING_IMAGES", f"正在生成PPT场景配图（第{current}/{total}张）。")
+
+                fill_scenes = partial(fill_planned_scenes, provider=provider, on_attempt=show_progress)
+                scene_policy = "automatic"
+        attach_project_images(run_dir, artifact, fill_scenes=fill_scenes, scene_policy=scene_policy)
+        return
+    chapter_prompts = {
+        "P01": "现代高端商务写字楼外立面与入口大堂，专业礼宾服务，商务摄影风格，冷色调，无文字",
+        "P02": "现代化物业运营指挥中心，多屏监控大屏与专业管理团队，商务摄影风格，冷色调，无文字",
+        "P03": "高端写字楼前台礼宾服务场景，专业客服人员，明亮整洁，商务摄影风格，无文字",
+        "P04": "专业安保人员在商务园区巡逻，秩序井然，商务纪实摄影，冷色调，无文字",
+        "P05": "物业工程人员在设备机房进行专业巡检维护，工业质感，商务摄影，无文字",
+        "P06": "现代园区绿化与环境养护场景，整洁明亮，商务摄影风格，自然光，无文字",
+        "P07": "项目管理团队在会议室进行服务品质复盘汇报，专业协作氛围，商务摄影，无文字",
+    }
+    try:
+        if not images_enabled:
+            return
+        image_provider = provider_manager().get(image_name, require_available=False)
+    except Exception:
+        image_provider = None
+    if image_provider is None:
+        write_json(run_dir / "images" / "image_audit.json", {"skipped": True, "reason": "image provider unavailable"})
+        return
+    image_dir = run_dir / "images"
+    images: dict[str, Any] = {}
+    if image_name in ACCOUNT_IMAGE_NAMES:
+        _write_generation_phase(run_dir, "GENERATING_IMAGES", "正在生成PPT封面与章节配图。")
+    try:
+        result = image_provider.generate_image(
+            "现代高端商务楼宇物业服务方案汇报封面背景，玻璃幕墙写字楼与专业服务团队剪影，深蓝绿色调，留白构图，商务摄影，无文字无水印",
+            image_dir, size="1024*1024",
+        )
+        images["cover"] = result["path"]
+    except Exception as exc:
+        write_json(image_dir / "image_audit.json", {"cover": "failed", "error": str(exc)[:200]})
+    by_chapter: dict[str, str] = {}
+    chapter_ids = sorted({str(slide.get("chapter_id") or "") for slide in (artifact.get("slides") or []) if slide.get("chapter_id")})
+    for cid in chapter_ids[:2 if image_name in ACCOUNT_IMAGE_NAMES else 5]:
+        prompt = chapter_prompts.get(cid) or chapter_prompts["P02"]
+        try:
+            result = image_provider.generate_image(prompt, image_dir, size="720*1280")
+            by_chapter[cid] = result["path"]
+        except Exception:
+            continue
+    if by_chapter:
+        images["by_chapter"] = by_chapter
+    if images:
+        artifact["images"] = images
 
 
 def _runtime() -> dict[str, Any]:
@@ -1229,6 +1795,7 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         actual_time = round(time.monotonic() - wall_started, 3)
         performance = ((longform_result or {}).get("performance") or {}) if longform_result else {}
         phase = str(performance.get("phase") or "generation")
+        error_id = _write_generation_error_diagnostics(run_dir, run_id, exc, phase=phase, provider=provider_name, recoverable=True)
         audit = {
             "run_id": run_id,
             "status": "generation_exception",
@@ -1290,12 +1857,27 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         })
         raise MMFError(str(exc)) from exc
     write_json(run_dir / "generation_raw.json", generated)
+    # 初稿先成为"可下载的文件"，再接受任何文档级判定：QA 之后即使降级为
+    # NEEDS_REVIEW 或技术性中断，投标人手上也已经有本方案初稿。
+    _write_generation_phase(run_dir, "FIRST_DRAFT", "正在整理文档。")
+    first_draft_file = render_first_draft_file(run_dir, brief, generated["artifact"])
+    write_json(run_dir / "first_draft.json", {
+        "schema_version": "first-draft-artifact-v0.1",
+        "artifact_kind": "FIRST_DRAFT",
+        "section_states": ((longform_result.get("word") or {}).get("section_states") or {}),
+        **first_draft_file,
+        "recorded_at": now_iso(),
+    })
     canonical_facts = ((longform_result.get("bundle") or {}).get("global_state") or brief)
+    from governance.final_editorial import SourceFacts, run_final_editorial
+    editorial_facts = SourceFacts.from_run(run_dir)
+    canonical_facts = {**canonical_facts, **editorial_facts.claim_source()}
+    final_qa_source = {**brief, **editorial_facts.claim_source()}
     quality = longform_result.get("quality_regression") or {}
     _write_generation_phase(run_dir, "FACT_COMMITMENT_CHECK", "正在检查事实与承诺。")
     recovery = recover_governance(
         generated,
-        brief=brief,
+        brief=final_qa_source if brief["medium"] == "WORD" else brief,
         positives=positives,
         guardrails=guardrails,
         contracts=contracts,
@@ -1307,9 +1889,25 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
     commitment = recovery["commitment"]
     artifact_qa = recovery["artifact_qa"]
     compliance = recovery["compliance"]
+    bidder_gate = generated.get("bidder_evidence_gate") or {}
+    if bidder_gate.get("findings"):
+        artifact_qa = {
+            **artifact_qa,
+            "findings": [*(artifact_qa.get("findings") or []), *(bidder_gate.get("findings") or [])],
+            "bidder_evidence_gate": bidder_gate.get("status"),
+        }
+    padding_gate = generated.get("content_padding_quality_gate") or {}
+    if padding_gate.get("findings"):
+        # §45：低信息增量进的是同一条分级通道（NEEDS_REVIEW），不是另起一个阻断口子。
+        artifact_qa = {
+            **artifact_qa,
+            "findings": [*(artifact_qa.get("findings") or []), *(padding_gate.get("findings") or [])],
+            "content_padding_gate": padding_gate.get("status"),
+        }
     if recovery.get("repair_count"):
-        _write_generation_phase(run_dir, "AUTO_REPAIRING", f"正在自动完善{recovery['repair_count']}处内容。")
-        _write_generation_phase(run_dir, "RECHECKING", "正在复核已完善的方案内容。")
+        # 本地治理修复（不消耗 Provider 调用）不再是"AUTO_REPAIRING"，
+        # §38-43 只把它作为完整性检查过程中的一次本地整理。
+        _write_generation_phase(run_dir, "DOCUMENT_QA", f"正在检查完整性，本地完善{recovery['repair_count']}处内容。")
     write_json(run_dir / "generation_raw.json", generated)
     write_json(run_dir / "recovery_audit.json", {"level": recovery.get("level"), "terminal": recovery.get("terminal"), "rounds": recovery.get("audit") or []})
     if quality.get("status") == "FAIL":
@@ -1317,80 +1915,53 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         findings.append({
             "rule_id": "QR-001",
             "severity": "BLOCK",
-            "issue": "QUALITY_REGRESSION_GATE FAIL: " + "、".join(str(item) for item in (quality.get("missing") or [])[:8]),
+            "issue": "QUALITY_REGRESSION_GATE FAIL: " + "、".join(str(item) for item in (quality.get("missing") or [])),
         })
         artifact_qa = {**artifact_qa, "status": "BLOCK", "findings": findings, "QUALITY_REGRESSION_GATE": "FAIL"}
+    from governance.artifact_qa import merge_longform_qa
+    artifact_qa = merge_longform_qa(artifact_qa, None)
     write_json(run_dir / "commitment_provenance_report.json", commitment)
     write_json(run_dir / "artifact_qa_report.json", artifact_qa)
     write_json(run_dir / "compliance_report.json", compliance)
     write_json(run_dir / "quality_regression.json", quality)
-    repair_attempts = 0
-    while delivery_blocked(compliance, commitment, artifact_qa, quality) and auto_repair:
-        if not _recoverable_integrity_failure(compliance, commitment, artifact_qa, quality):
-            break
-        repair_limit = _automatic_repair_limit(compliance, commitment, artifact_qa, quality)
-        if repair_attempts >= repair_limit:
-            break
-        repair_attempts += 1
-        _write_generation_phase(run_dir, "AUTO_REPAIRING", "正在自动完善方案内容。")
-        repair_started = time.monotonic()
-        repair_error: Exception | None = None
-        try:
-            longform_result = generate_longform(
-                run_dir=run_dir,
-                provider=provider,
-                provider_name=provider_name,
-                brief=brief,
-                selection=selection,
-                selected_ids=selected,
-                speed_profile=brief.get("speed_profile"),
-                max_parallelism=brief.get("max_parallelism"),
-                history_path=RUNTIME_DIR / "latency_history.jsonl",
-            )
-        except Exception as exc:
-            repair_error = exc
-        finally:
-            repair_elapsed = round(time.monotonic() - repair_started, 3)
-            external_repair_wall += repair_elapsed
-            record_longform_attempt(run_dir, repair_elapsed, repair_attempt=True, outcome="failed" if repair_error else "completed")
-        if repair_error is not None:
-            record_stage_duration(run_dir, "content_and_compliance_qa", max(0.0, (time.monotonic() - qa_started) - external_repair_wall), outcome="failed")
-            actual_time = round(time.monotonic() - wall_started, 3)
-            _write_run_audit(run_dir, {
-                "run_id": run_id, "status": "repair_exception", "partial": True, "phase": "repair",
-                "error": str(repair_error), "error_type": type(repair_error).__name__, "actual_time": actual_time,
-                "repair_reasoning": _repair_reasoning_value(longform_result), **_longform_runtime_audit(longform_result),
-                "created_at": now_iso(),
-            })
-            raise MMFError(str(repair_error)) from repair_error
-        raw_quote_audit = quote_serialization_status(longform_result["generated"])
-        generated = apply_local_repairs(apply_artifact_repairs(longform_result["generated"]))
-        postprocess_quote_audit = quote_serialization_status(generated)
-        write_json(run_dir / f"generation_raw_repair_{repair_attempts}.json", generated)
-        canonical_facts = ((longform_result.get("bundle") or {}).get("global_state") or brief)
-        quality = longform_result.get("quality_regression") or quality
-        recovery = recover_governance(
-            generated,
-            brief=brief,
-            positives=positives,
-            guardrails=guardrails,
-            contracts=contracts,
-            canonical_facts=canonical_facts,
-            depth=longform_result.get("depth"),
-            quality=quality,
+    # §25-29：文档级QA之后的 Provider 修复已在 longform 层的有界预算内执行完毕（一轮，
+    # 只补缺口），这里绝不再整篇重跑；剩余问题按统一严重性进入终态判定。
+    document_qa_stage = longform_result.get("document_qa") or {}
+    repair_attempts = int(document_qa_stage.get("attempted") or 0)
+    repair_budget_audit = (
+        document_qa_stage.get("budget")
+        or ((longform_result.get("word") or {}).get("global_repair_budget"))
+        or {}
+    )
+    # §44-46：修复风暴守卫——修复耗时超过初稿耗时，或同一问题被反复处理，都要
+    # 留下 QA Performance Warning，而不是让 AUTO_REPAIRING 静默跑三小时。
+    qa_performance_warning = bool(
+        repair_budget_audit.get("storm_triggered")
+        or repair_budget_audit.get("repair_over_initial")
+    )
+    if qa_performance_warning:
+        write_json(run_dir / "qa_performance_warning.json", {
+            "schema_version": "qa-performance-warning-v0.1",
+            "REPAIR_STORM_GUARD": bool(repair_budget_audit.get("storm_triggered")),
+            "repair_over_initial": bool(repair_budget_audit.get("repair_over_initial")),
+            "budget": repair_budget_audit,
+            "recorded_at": now_iso(),
+        })
+    findings_total = int(((document_qa_stage.get("counts") or {}).get("repair_candidates") or 0)) + int(
+        ((document_qa_stage.get("counts") or {}).get("supplement_candidates") or 0))
+    budget_used = int(repair_budget_audit.get("repair_calls_used") or 0) + int(repair_budget_audit.get("supplement_calls_used") or 0)
+    budget_max = repair_budget_audit.get("max_repair_calls")
+    _write_generation_phase(
+        run_dir, "DOCUMENT_QA",
+        f"正在检查完整性，发现关键问题 {int(((document_qa_stage.get('counts') or {}).get('block') or 0))} 项。"
+        if findings_total else "正在检查完整性。",
+    )
+    if auto_repair and (document_qa_stage.get("attempted") or 0):
+        _write_generation_phase(
+            run_dir, "SELECTIVE_REPAIR",
+            f"关键问题 {findings_total} 项 / 正在修复 {int(document_qa_stage.get('attempted') or 0)}/{findings_total}"
+            + (f" / 自动修复预算 {budget_used}/{budget_max} calls" if budget_max else ""),
         )
-        generated = recovery["generated"]
-        commitment = recovery["commitment"]
-        artifact_qa = recovery["artifact_qa"]
-        compliance = recovery["compliance"]
-        if quality.get("status") == "FAIL":
-            findings = list(artifact_qa.get("findings") or [])
-            findings.append({"rule_id": "QR-001", "severity": "BLOCK", "issue": "QUALITY_REGRESSION_GATE FAIL"})
-            artifact_qa = {**artifact_qa, "status": "BLOCK", "findings": findings, "QUALITY_REGRESSION_GATE": "FAIL"}
-        write_json(run_dir / f"commitment_provenance_report_repair_{repair_attempts}.json", commitment)
-        write_json(run_dir / f"artifact_qa_report_repair_{repair_attempts}.json", artifact_qa)
-        write_json(run_dir / f"compliance_report_repair_{repair_attempts}.json", compliance)
-        _write_generation_phase(run_dir, "RECHECKING", "正在复核已完善的方案内容。")
     qa_seconds = round(
         (time.monotonic() - qa_started) + _numeric_seconds(((longform_result or {}).get("performance") or {}).get("qa_seconds")),
         3,
@@ -1413,6 +1984,23 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             quality=quality,
             repair_attempts=repair_attempts,
         )
+        # §17-19：技术性失败也不得隐藏已生成的文件——初稿在 QA 判定之前就已落盘，
+        # 这里如实报告它是否仍然存在、能否下载，而不是恒报 False。
+        partial_artifact = resolve_run_artifact(run_dir)
+        first_draft_meta = (
+            read_json(run_dir / "first_draft.json", "first_draft_availability")
+            if (run_dir / "first_draft.json").is_file() else {}
+        )
+        draft_path = Path(str(first_draft_meta.get("path") or ""))
+        if partial_artifact is None and draft_path.is_file():
+            partial_artifact = draft_path
+        artifact_available = bool(partial_artifact is not None and partial_artifact.is_file())
+        partial_relative = ""
+        if artifact_available:
+            try:
+                partial_relative = partial_artifact.relative_to(run_dir).as_posix()
+            except ValueError:
+                partial_relative = partial_artifact.name
         _write_generation_phase(run_dir, "TERMINAL_BLOCKED", decision["public_message"], recoverable=False)
         actual_time = round(time.monotonic() - wall_started, 3)
         blocked = {
@@ -1421,7 +2009,10 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             "qa_state": DELIVERY_TECHNICAL,
             "delivery_status": decision["delivery_status"],
             "qa_status": decision["qa_status"],
-            "artifact_available": False,
+            "artifact_available": artifact_available,
+            "artifact_name": partial_artifact.name if artifact_available else "",
+            "download_url": f"/files/{run_id}/{partial_relative}" if artifact_available else "",
+            "partial_artifact_kind": ("FIRST_DRAFT" if "first_draft/" in partial_relative else "LAST_VALID_ARTIFACT") if artifact_available else "",
             "public_message": decision["public_message"],
             "message": decision["public_message"],
             "compliance": compliance,
@@ -1443,6 +2034,10 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             "commitment_provenance_status": commitment["status"],
             "artifact_qa_status": artifact_qa["status"],
             "block_reasons": [item.get("rule_id") for item in (compliance.get("violations") or []) if item.get("severity") == "BLOCK"] + [item.get("rule_id") for item in (artifact_qa.get("findings") or []) if item.get("severity") == "BLOCK"],
+            "artifact_available": artifact_available,
+            "partial_artifact_path": partial_relative,
+            "first_draft_artifact_status": first_draft_meta.get("status"),
+            "qa_performance_warning": qa_performance_warning,
             "LONGFORM_ORCHESTRATOR": "ACTIVE",
             "ONE_SHOT_FULL_DOCUMENT_GENERATION": False,
             "SECTION_LEVEL_GENERATION": True,
@@ -1482,6 +2077,8 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         )
         return blocked
     write_json(run_dir / "generation_raw.json", generated)
+    if brief["medium"] != "WORD":
+        _attach_ppt_images(run_dir, generated["artifact"], provider_name)
     content_path = run_dir / "artifact_content.json"
     write_json(content_path, {"brief": brief, "artifact": generated["artifact"]})
     _write_generation_phase(run_dir, "ASSEMBLING", "正在生成Word文件。" if brief["medium"] == "WORD" else "正在生成PPT文件。")
@@ -1493,16 +2090,19 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
     env["RUNTIME_BIN_DIR"] = str(runtime.get("bin_dir", ""))
     if brief["medium"] == "WORD":
         final_path = artifact_display_path(run_dir, brief)
+        env["MMF_ARTIFACT_BUILD_METRICS"] = str(run_dir / "artifact_table_build_metrics.json")
         cmd = [str(runtime.get("python_executable") or sys.executable), str(APP_ROOT / "build_docx.py"), str(content_path), str(final_path)]
     else:
         final_path = artifact_display_path(run_dir, brief)
         qa_dir = run_dir / "_qa_ppt"
+        env["MMF_PPT_PYTHON"] = str(runtime.get("python_executable") or sys.executable)
         cmd = [str(runtime.get("node_executable") or "node"), str(APP_ROOT / "build_ppt.mjs"), str(content_path), str(final_path), str(qa_dir)]
     try:
         completed = subprocess.run(cmd, cwd=str(APP_ROOT), env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600, shell=False)
     except Exception as exc:
         record_stage_duration(run_dir, "artifact_assembly", time.monotonic() - render_started, outcome="failed")
         actual_time = round(time.monotonic() - wall_started, 3)
+        error_id = _write_generation_error_diagnostics(run_dir, run_id, exc, phase="render", provider=provider_name, recoverable=True)
         _write_run_audit(run_dir, {
             "run_id": run_id,
             "status": "render_blocked",
@@ -1520,11 +2120,21 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             "TEST_TARGET": "production_dist" if runtime_source == "dist" else "source",
             "created_at": now_iso(),
         })
+        write_json(run_dir / "technical_failure.json", {
+            "status": "ASSEMBLY_FAILED",
+            "error_type": type(exc).__name__,
+            "error_id": error_id,
+            "recoverable": True,
+            "error": str(exc)[:500],
+            "recorded_at": now_iso(),
+        })
+        from longform.run_state import finalize_delivery_state
+        finalize_delivery_state(run_dir, medium=brief.get("medium"), draft_delivery=DELIVERY_TECHNICAL)
         _record_terminal_latency(
             run_id=run_id, brief=brief, provider_name=provider_name, longform_result=longform_result,
             status="render_blocked", eligible=False, actual_time=actual_time, qa_seconds=qa_seconds, build_id=build_id,
         )
-        raise MMFError(str(exc)) from exc
+        raise MMFError(f"生成过程中发生内部错误（错误编号：{error_id}），系统已保留已完成内容，可继续恢复。") from exc
     (run_dir / "artifact_build.stdout.log").write_text(completed.stdout or "", encoding="utf-8")
     (run_dir / "artifact_build.stderr.log").write_text(completed.stderr or "", encoding="utf-8")
     if completed.returncode != 0 or not final_path.is_file():
@@ -1546,25 +2156,94 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             "TEST_TARGET": "production_dist" if runtime_source == "dist" else "source",
             "created_at": now_iso(),
         })
+        write_json(run_dir / "technical_failure.json", {
+            "status": "ASSEMBLY_FAILED",
+            "error_type": "RendererFailure",
+            "error": (completed.stderr or "artifact_build_failed")[-500:],
+            "recorded_at": now_iso(),
+        })
+        from longform.run_state import finalize_delivery_state
+        finalize_delivery_state(run_dir, medium=brief.get("medium"), draft_delivery=DELIVERY_TECHNICAL)
         _record_terminal_latency(
             run_id=run_id, brief=brief, provider_name=provider_name, longform_result=longform_result,
             status="render_blocked", eligible=False, actual_time=actual_time, qa_seconds=qa_seconds, build_id=build_id,
         )
         raise MMFError("生成失败，请查看运行日志")
     record_stage_duration(run_dir, "artifact_assembly", time.monotonic() - render_started)
+    if brief["medium"] == "PPT" and generated["artifact"].get("profile_p_contract"):
+        from ppt_final_verify import verify_pptx
+        final_artifact_qa = verify_pptx(final_path, generated["artifact"])
+        final_artifact_qa["file_integrity_status"] = final_artifact_qa["status"]
+        if final_artifact_qa["status"] != "BLOCK":
+            final_artifact_qa["status"] = artifact_qa.get("status") or "NEEDS_REVIEW"
+        write_json(run_dir / "final_artifact_qa.json", final_artifact_qa)
+        artifact_qa = {**artifact_qa,
+            "status": "BLOCK" if final_artifact_qa["status"] == "BLOCK" else artifact_qa.get("status"),
+            "findings": [*(artifact_qa.get("findings") or []), *final_artifact_qa["findings"]],
+            "final_pptx": final_artifact_qa}
+        write_json(run_dir / "artifact_qa_report.json", artifact_qa)
+    if brief["medium"] == "WORD":
+        _write_generation_phase(run_dir, "FINAL_EDITORIAL", "正在校核成稿文字与来源事实。")
+        editorial_started = time.monotonic()
+        # One final artifact pass precedes pagination and final QA. Failure leaves
+        # the readable file available, but enters the existing QA delivery gate.
+        try:
+            run_final_editorial(final_path, facts=editorial_facts, output_dir=run_dir,
+                                section_titles={str(s.get("section_id")): str(s.get("heading") or s.get("title") or "")
+                                                for s in generated.get("artifact", {}).get("sections", [])})
+        except Exception as exc:
+            artifact_qa = {**(artifact_qa or {}), "status": "BLOCK",
+                           "findings": list((artifact_qa or {}).get("findings") or []) +
+                           [{"rule_id": "FINAL_ARTIFACT_QA_FAILED", "severity": "BLOCK",
+                             "issue": f"FINAL_EDITORIAL failed: {type(exc).__name__}"}]}
+            write_json(run_dir / "final_editorial_report.json", {"status": "FAILED", "error": str(exc)[:200]})
+        record_stage_duration(run_dir, "final_editorial", time.monotonic() - editorial_started)
     if not artifact_physically_invalid(final_path):
         record_last_valid_artifact(run_dir, final_path)
-    delivery_decision = classify_fail_soft(artifact_path=final_path, artifact_qa=artifact_qa, commitment=commitment, compliance=compliance, quality=quality, repair_attempts=repair_attempts)
+    pagination_report: dict[str, Any] = {}
+    if brief["medium"] == "WORD" and final_path.is_file():
+        # §18-§23 装配顺序：正文与附录装配 → 分页 → 目录字段刷新 → 最终 Artifact QA。
+        # 渲染器只是量尺：原生目录域、书签和 updateFields 一律不动，WPS 打开仍会自刷新。
+        _write_generation_phase(run_dir, "TOC_PAGINATION_REFRESH", "正在按真实分页刷新目录页码。")
+        pagination_started = time.monotonic()
+        try:
+            from longform.pagination import refresh_with_retry
+            pagination_report = refresh_with_retry(final_path, run_dir=run_dir)
+        except Exception as exc:
+            # 没有渲染器不能把已经生成的文件变成"没有文件"。
+            pagination_report = {"schema_version": "artifact-pagination-v0.1", "status": "PAGINATION_ERROR",
+                                 "error": str(exc)[:200]}
+            write_json(run_dir / "artifact_pagination.json", pagination_report)
+        record_stage_duration(run_dir, "toc_pagination_refresh", time.monotonic() - pagination_started)
+        from governance.final_editorial import bind_human_input_pages
+        bind_human_input_pages(run_dir, pagination_report)
+        # 只要 document.xml 被真实重写过，磁盘上的字节就变了：LAST_VALID 必须指向
+        # 这一版，否则回滚会把已经刷新过分页的产物退回未刷新的旧副本。
+        if pagination_report.get("document_xml_rewritten") and not artifact_physically_invalid(final_path):
+            record_last_valid_artifact(run_dir, final_path)
+    # V1.1 P1 / Round 2 §34：Consistency 结果必须进入交付门。
+    #   PASS → 正常；NEEDS_REVIEW（含 CS-FAIL）→ 不得 COMPLETED_CLEAN；
+    #   BLOCK → 按严重性 NEEDS_REVIEW 或 Terminal Block。
+    consistency_status = str((generated.get("consistency") or {}).get("status") or "")
+    consistency_issues = (generated.get("consistency") or {}).get("issues") or []
+    if consistency_status in {"CONSISTENCY_CHECK_FAILED", "NEEDS_REVIEW", "BLOCK"} and len(consistency_issues) > 0:
+        severity = "BLOCK" if consistency_status == "BLOCK" else "NEEDS_REVIEW"
+        cs_findings = [{"rule_id": f"CS-{severity}", "severity": severity,
+                        "issue": f"一致性检查 {consistency_status}：关键事实核查存在未解决问题（{len(consistency_issues)} 项）。"}]
+        artifact_qa = {**(artifact_qa or {}),
+                       "findings": list((artifact_qa or {}).get("findings") or []) + cs_findings,
+                       "consistency_gate": severity}
+    delivery_decision = classify_fail_soft(artifact_path=final_path, artifact_qa=artifact_qa, commitment=commitment, compliance=compliance, quality=quality, repair_attempts=repair_attempts, artifact=(generated.get("artifact") if isinstance(generated, dict) else None), medium=str(brief.get("medium") or ""))
+    local_review_repair = None
     _write_generation_phase(run_dir, "FINAL_ARTIFACT_QA", "正在执行最终文件检查。")
     if brief["medium"] == "WORD":
+        def evaluate_final_docx(path):
+            return evaluate_docx_artifact(path, canonical_facts=canonical_facts, brief=final_qa_source,
+                                          contracts=contracts, run_dir=run_dir)
+
         final_qa_started = time.monotonic()
         try:
-            final_artifact_qa = evaluate_docx_artifact(
-                final_path,
-                canonical_facts=canonical_facts,
-                brief=brief,
-                contracts=contracts,
-            )
+            final_artifact_qa = evaluate_final_docx(final_path)
             pre_repair_docx_quote_status = final_artifact_qa.get("quote_status")
             repair_rounds = []
             for _round in range(2):
@@ -1582,13 +2261,8 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
                     break
                 record_last_valid_artifact(run_dir, final_path)
                 repair_rounds.append(artifact_repair)
-                _write_generation_phase(run_dir, "AUTO_REPAIRING", "正在自动完善方案内容。")
-                final_artifact_qa = evaluate_docx_artifact(
-                    final_path,
-                    canonical_facts=canonical_facts,
-                    brief=brief,
-                    contracts=contracts,
-                )
+                _write_generation_phase(run_dir, "FINAL_ARTIFACT_QA", "正在检查文件完整性并本地修正格式。")
+                final_artifact_qa = evaluate_final_docx(final_path)
             if repair_rounds:
                 final_artifact_qa["post_repair_reopened_actual_docx"] = True
                 final_artifact_qa["repair_summary"] = repair_rounds[-1]
@@ -1615,9 +2289,11 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             raise MMFError(str(exc)) from exc
         else:
             record_stage_duration(run_dir, "final_artifact_qa", time.monotonic() - final_qa_started)
+        if artifact_physically_invalid(final_path) and restore_last_valid_artifact(run_dir, final_path):
+            final_artifact_qa = evaluate_final_docx(final_path)
+        _write_generation_phase(run_dir, "FINAL_SCORING", "正在核验成稿对招标评分要求的响应。")
+        final_artifact_qa = _refresh_final_scoring_delivery(run_dir, final_path, final_artifact_qa)
         write_json(run_dir / "final_artifact_qa.json", final_artifact_qa)
-        if artifact_physically_invalid(final_path):
-            restore_last_valid_artifact(run_dir, final_path)
         delivery_decision = classify_fail_soft(
             artifact_path=final_path,
             findings=list(final_artifact_qa.get("findings") or []),
@@ -1629,17 +2305,57 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             repaired=bool(repair_rounds),
         )
         if delivery_decision["delivery_status"] == DELIVERY_TECHNICAL and restore_last_valid_artifact(run_dir, final_path) and not artifact_physically_invalid(final_path):
+            # Restoration can change the landed bytes: re-open both QA and
+            # scoring instead of retaining the reading of the rejected file.
+            final_artifact_qa = evaluate_final_docx(final_path)
+            final_artifact_qa = _refresh_final_scoring_delivery(run_dir, final_path, final_artifact_qa)
+            write_json(run_dir / "final_artifact_qa.json", final_artifact_qa)
             delivery_decision = classify_fail_soft(
                 artifact_path=final_path,
                 findings=list(final_artifact_qa.get("findings") or []),
-                artifact_qa=artifact_qa,
+                artifact_qa={**artifact_qa, "final_docx": final_artifact_qa,
+                             "findings": [*(artifact_qa.get("findings") or []),
+                                          *(final_artifact_qa.get("findings") or [])]},
                 commitment=commitment,
                 compliance=compliance,
                 quality=quality,
                 repair_attempts=max(repair_attempts, len(repair_rounds)),
                 repaired=bool(repair_rounds),
             )
+        from providers.cursor_account import is_cursor_provider
+        if (delivery_decision["delivery_status"] == DELIVERY_REVIEW
+                and (provider_name in {"qoder_account", "zcode_cn"} or is_cursor_provider(provider_name))):
+            _write_generation_phase(run_dir, "LOCAL_REVIEW_REPAIR", "正在自动尝试修复待复核稿。")
+            local_review_repair, pagination_report = _record_account_review_repair(
+                final_path, run_dir, final_artifact_qa, evaluate_final_docx, pagination_report,
+                provider_name, delivery_decision["delivery_status"])
+            if local_review_repair and local_review_repair["status"] == "APPLIED":
+                repair_rounds.append(local_review_repair)
+                write_json(run_dir / "artifact_pagination.json", pagination_report)
+                bind_human_input_pages(run_dir, pagination_report)
+                record_last_valid_artifact(run_dir, final_path)
+                final_artifact_qa = _refresh_final_scoring_delivery(run_dir, final_path, evaluate_final_docx(final_path))
+                final_artifact_qa["quote_pipeline_audit"] = {**quote_pipeline_audit,
+                                                            "FINAL_DOCX_QUOTE_STATUS": final_artifact_qa.get("quote_status")}
+                write_json(run_dir / "quote_pipeline_audit.json", final_artifact_qa["quote_pipeline_audit"])
+                write_json(run_dir / "final_artifact_qa.json", final_artifact_qa)
+                delivery_decision = classify_fail_soft(
+                    artifact_path=final_path,
+                    findings=list(final_artifact_qa.get("findings") or []),
+                    artifact_qa={**artifact_qa, "final_docx": final_artifact_qa,
+                                 "findings": [*(artifact_qa.get("findings") or []),
+                                              *(final_artifact_qa.get("findings") or [])]},
+                    commitment=commitment,
+                    compliance=compliance,
+                    quality=quality,
+                    repair_attempts=max(repair_attempts, len(repair_rounds)),
+                    repaired=True,
+                )
+            write_json(run_dir / "local_review_repair.json", local_review_repair)
         write_review_summary(run_dir, delivery_decision["qa_review_summary"])
+        # §44：技术标正文之外的"待投标人确认"事项走随件内部汇总，不进 Word 正文。
+        technical_review_summary = _write_technical_review_summary(
+            run_dir, generated.get("bidder_evidence_gate") or {}, pagination_report)
         leftover_warnings = leftover_warnings + list((delivery_decision.get("qa_review_summary") or {}).get("issues") or [])
         write_json(run_dir / "leftover_warnings.json", leftover_warnings)
         if delivery_decision["delivery_status"] == DELIVERY_TECHNICAL and not delivery_decision.get("artifact_available"):
@@ -1678,6 +2394,149 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
             }
     if not (run_dir / "qa_review_summary.json").is_file():
         write_review_summary(run_dir, delivery_decision.get("qa_review_summary") or {"issues": []})
+    # §交付：产品直接输出保留原件；内部留档主稿与对外清理件分别命名并计算 SHA。
+    # 清理是可重复的产品阶段（不是人工修末端 DOCX）：只改对外副本，原件字节不动，
+    # 逐段保留前后映射，清理后再分页并由 Artifact QA 实测对外副本。
+    delivery_path = final_path
+    delivered_artifact_qa = final_artifact_qa if brief["medium"] == "WORD" else {}
+    external_cleanup: dict[str, Any] = {
+        "schema_version": "external-cleanup-v1", "status": "NOT_APPLICABLE",
+        "provider_calls": 0, "changes": [], "rule_counts": {}, "residual_count": 0,
+    }
+    artifact_bindings: dict[str, Any] = {}
+    if brief["medium"] == "WORD" and final_path.is_file():
+        from governance.external_cleanup import clean_docx, write_report
+        from longform.pagination import refresh_with_retry
+        cleanup_started = time.monotonic()
+        _write_generation_phase(run_dir, "EXTERNAL_CLEANUP", "正在保留产品原件并生成对外清理件。")
+        direct_bytes = final_path.read_bytes()
+        direct_sha = hashlib.sha256(direct_bytes).hexdigest()
+        stem, suffix = final_path.stem, (final_path.suffix or ".docx")
+        internal_path = run_dir / f"{stem}_内部留档{suffix}"
+        external_path = run_dir / f"{stem}_对外清理{suffix}"
+        shutil.copyfile(final_path, internal_path)
+        direct_pagination_path = run_dir / "artifact_pagination.json"
+        direct_pagination = read_json(direct_pagination_path, "direct_pagination") if direct_pagination_path.is_file() else None
+        try:
+            external_cleanup = clean_docx(final_path, external_path)
+        except Exception as exc:
+            external_cleanup = {
+                "schema_version": "external-cleanup-v1", "status": "FAILED",
+                "error": f"{type(exc).__name__}: {exc}"[:300],
+                "provider_calls": 0, "changes": [], "rule_counts": {},
+                "residual_count": None,
+            }
+            external_path.unlink(missing_ok=True)
+        else:
+            write_report(external_cleanup, run_dir / "external_cleanup.json")
+        external_artifact_qa: dict[str, Any] = {}
+        if external_cleanup.get("status") == "CLEANED":
+            # The cleanup changes visible text; page numbers cached in the native
+            # TOC must be re-measured on the cleaned copy before it is delivered.
+            try:
+                external_pagination = refresh_with_retry(external_path, run_dir=run_dir)
+            except Exception as exc:
+                external_pagination = {
+                    "schema_version": "artifact-pagination-v0.1",
+                    "status": "PAGINATION_ERROR", "error": str(exc)[:200],
+                }
+            write_json(run_dir / "artifact_pagination_external.json", external_pagination)
+            if direct_pagination is not None:
+                write_json(run_dir / "artifact_pagination.json", direct_pagination)
+            external_cleanup["pagination"] = external_pagination
+        if external_cleanup.get("status") in {"CLEANED", "NO_CHANGES"} and external_path.is_file():
+            try:
+                external_artifact_qa = evaluate_docx_artifact(
+                    external_path, canonical_facts=canonical_facts, brief=final_qa_source,
+                    contracts=contracts, run_dir=None)
+                write_json(run_dir / "external_artifact_qa.json", external_artifact_qa)
+            except Exception as exc:
+                external_artifact_qa = {
+                    "status": "BLOCK",
+                    "findings": [{"rule_id": "EXTERNAL_ARTIFACT_QA_FAILED", "severity": "BLOCK",
+                                  "issue": f"{type(exc).__name__}: {exc}"[:300]}],
+                }
+                write_json(run_dir / "external_artifact_qa.json", external_artifact_qa)
+        external_cleanup["qa"] = external_artifact_qa
+        if external_cleanup.get("status") in {"CLEANED", "NO_CHANGES"}:
+            write_report(external_cleanup, run_dir / "external_cleanup.json")
+        external_eligible = _external_delivery_eligible(
+            external_cleanup, external_artifact_qa, final_artifact_qa)
+        if external_eligible:
+            delivery_path = external_path
+            delivered_artifact_qa = external_artifact_qa
+            delivery_decision = classify_fail_soft(
+                artifact_path=external_path,
+                findings=list(external_artifact_qa.get("findings") or []),
+                artifact_qa={**artifact_qa, "final_docx": external_artifact_qa,
+                             "findings": [*(artifact_qa.get("findings") or []),
+                                          *(external_artifact_qa.get("findings") or [])]},
+                commitment=commitment,
+                compliance=compliance,
+                quality=quality,
+                repair_attempts=max(repair_attempts, len(repair_rounds)),
+                repaired=bool(repair_rounds) or external_cleanup.get("status") == "CLEANED",
+            )
+            write_review_summary(run_dir, delivery_decision["qa_review_summary"])
+            leftover_warnings = leftover_warnings + list(
+                (delivery_decision.get("qa_review_summary") or {}).get("issues") or [])
+            write_json(run_dir / "leftover_warnings.json", leftover_warnings)
+            if local_review_repair is None and delivery_decision["delivery_status"] == DELIVERY_REVIEW:
+                _write_generation_phase(run_dir, "LOCAL_REVIEW_REPAIR", "正在自动尝试修复待复核稿。")
+                local_review_repair, pagination_report = _record_account_review_repair(
+                    external_path, run_dir, external_artifact_qa, evaluate_final_docx, pagination_report,
+                    provider_name, delivery_decision["delivery_status"])
+                if local_review_repair and local_review_repair.get("status") == "APPLIED":
+                    repair_rounds.append(local_review_repair)
+                    external_artifact_qa = _refresh_final_scoring_delivery(
+                        run_dir, external_path, evaluate_final_docx(external_path))
+                    delivered_artifact_qa = external_artifact_qa
+                    write_json(run_dir / "external_artifact_qa.json", external_artifact_qa)
+                    delivery_decision = classify_fail_soft(
+                        artifact_path=external_path,
+                        findings=list(external_artifact_qa.get("findings") or []),
+                        artifact_qa={**artifact_qa, "final_docx": external_artifact_qa,
+                                     "findings": [*(artifact_qa.get("findings") or []),
+                                                  *(external_artifact_qa.get("findings") or [])]},
+                        commitment=commitment,
+                        compliance=compliance,
+                        quality=quality,
+                        repair_attempts=max(repair_attempts, len(repair_rounds)),
+                        repaired=True,
+                    )
+                    write_review_summary(run_dir, delivery_decision["qa_review_summary"])
+        for row in external_cleanup.get("changes") or []:
+            row["direct_artifact_sha256"] = direct_sha
+        artifact_bindings = {
+            "schema_version": "artifact-bindings-v1",
+            "product_direct": {
+                "name": final_path.name, "path": _path_label(final_path),
+                "sha256": direct_sha, "bytes": len(direct_bytes),
+            },
+            "internal_master": {
+                "name": internal_path.name, "path": _path_label(internal_path),
+                "sha256": hashlib.sha256(internal_path.read_bytes()).hexdigest(),
+                "bytes": internal_path.stat().st_size,
+                "byte_identical_to_product_direct": internal_path.read_bytes() == direct_bytes,
+            },
+            "external_clean": {
+                "name": external_path.name if external_path.is_file() else "",
+                "path": _path_label(external_path) if external_path.is_file() else "",
+                "sha256": hashlib.sha256(external_path.read_bytes()).hexdigest() if external_path.is_file() else "",
+                "bytes": external_path.stat().st_size if external_path.is_file() else 0,
+                "status": external_cleanup.get("status"),
+                "changed_paragraphs": external_cleanup.get("changed_paragraphs"),
+                "residual_count": external_cleanup.get("residual_count"),
+            },
+            "delivered": {
+                "role": "external_clean" if delivery_path == external_path else "product_direct",
+                "name": delivery_path.name,
+                "sha256": hashlib.sha256(delivery_path.read_bytes()).hexdigest(),
+            },
+            "provider_calls": 0,
+        }
+        write_json(run_dir / "artifact_bindings.json", artifact_bindings)
+        record_stage_duration(run_dir, "external_cleanup", time.monotonic() - cleanup_started)
     render_seconds = round(time.monotonic() - render_started, 3)
     actual_time = round(time.monotonic() - wall_started, 3)
     recommendation_metadata = recommendation.get("provider_metadata") if isinstance(recommendation.get("provider_metadata"), dict) else {}
@@ -1708,16 +2567,35 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         "generation_task_id": generation_metadata.get("task_id") or f"{run_id}-generate",
         "generation_layer_version": "Generation Layer Patch V0.2",
         "output_medium_profile": profile,
-        "generated_artifact_path": str(final_path.relative_to(RUNTIME_ROOT)),
-        "artifact_display_name": final_path.name,
-        "artifact_internal_path": str(final_path.relative_to(RUNTIME_ROOT)),
+        "generated_artifact_path": _path_label(final_path),
+        "artifact_display_name": delivery_path.name,
+        "artifact_internal_path": _path_label(final_path),
+        "product_direct_artifact_path": _path_label(final_path),
+        "product_direct_artifact_name": final_path.name,
+        "product_direct_artifact_sha256": (artifact_bindings.get("product_direct") or {}).get("sha256"),
+        "internal_master_artifact_path": (artifact_bindings.get("internal_master") or {}).get("path"),
+        "internal_master_artifact_name": (artifact_bindings.get("internal_master") or {}).get("name"),
+        "internal_master_artifact_sha256": (artifact_bindings.get("internal_master") or {}).get("sha256"),
+        "external_clean_artifact_path": (artifact_bindings.get("external_clean") or {}).get("path"),
+        "external_clean_artifact_name": (artifact_bindings.get("external_clean") or {}).get("name"),
+        "external_clean_artifact_sha256": (artifact_bindings.get("external_clean") or {}).get("sha256"),
+        "delivered_artifact_role": (artifact_bindings.get("delivered") or {}).get("role"),
+        "delivered_artifact_name": delivery_path.name,
+        "delivered_artifact_sha256": (artifact_bindings.get("delivered") or {}).get("sha256"),
+        "artifact_bindings_path": _path_label(run_dir / "artifact_bindings.json") if artifact_bindings else None,
+        "external_cleanup_status": external_cleanup.get("status"),
+        "external_cleanup_changed_paragraphs": external_cleanup.get("changed_paragraphs"),
+        "external_cleanup_residual_count": external_cleanup.get("residual_count"),
+        "external_cleanup_provider_calls": external_cleanup.get("provider_calls", 0),
         "compliance_status": compliance["status"],
         "commitment_provenance_status": commitment["status"],
         "artifact_qa_status": artifact_qa["status"],
-        "final_artifact_qa_status": (final_artifact_qa.get("status") if brief["medium"] == "WORD" else "NOT_APPLICABLE"),
+        "final_artifact_qa_status": ((delivered_artifact_qa or {}).get("status") if brief["medium"] == "WORD" else (final_artifact_qa.get("status") if generated["artifact"].get("profile_p_contract") else "NOT_APPLICABLE")),
+        "product_direct_artifact_qa_status": ((final_artifact_qa or {}).get("status") if brief["medium"] == "WORD" else "NOT_APPLICABLE"),
+        "external_artifact_qa_status": ((external_cleanup.get("qa") or {}).get("status") if isinstance(external_cleanup.get("qa"), dict) else None),
         "leftover_accepted": bool(leftover_warnings),
         "leftover_warning_count": len(leftover_warnings),
-        "delivery_status": delivery_decision.get("delivery_status"),
+        "candidate_delivery_status": delivery_decision.get("delivery_status"),
         "qa_status": delivery_decision.get("qa_status"),
         "artifact_available": True,
         "review_count": delivery_decision.get("review_count") or 0,
@@ -1737,6 +2615,8 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         "logical_section_count": ((longform_result.get("word") or {}).get("logical_section_count")),
         "generation_batch_count": ((longform_result.get("word") or {}).get("generation_batch_count")),
         **_longform_runtime_audit(longform_result),
+        **_pagination_audit_fields(run_dir),
+        **_table_audit_fields(run_dir),
         "SECTIONS_PER_PROVIDER_CALL": ((longform_result.get("word") or {}).get("SECTIONS_PER_PROVIDER_CALL")),
         "CALL_REDUCTION_RATIO": ((longform_result.get("word") or {}).get("CALL_REDUCTION_RATIO")),
         "parallelism": ((longform_result.get("word") or {}).get("parallelism")),
@@ -1759,29 +2639,57 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         "render_seconds": render_seconds,
         "actual_time": actual_time,
         "QUALITY_REGRESSION_GATE": ((longform_result.get("quality_regression") or {}).get("status")),
+        "content_metrics": longform_result.get("content_metrics") or {},
         "created_at": now_iso(),
         "generation_started_at": (read_json(run_dir / "generation_status.json", "generation_status") or {}).get("started_at") if (run_dir / "generation_status.json").is_file() else None,
     }
-    run_audit["status"] = "generation_completed"
+    from planning.ppt_delivery import completion_state
+    ppt_completion = completion_state(run_dir) if brief["medium"] == "PPT" else None
+    partial_ppt = ppt_completion is not None and not ppt_completion["complete"]
+    terminal_status = "generation_partial" if partial_ppt else "generation_completed"
+    terminal_message = (f"已生成{ppt_completion['completed_body_pages']}/{ppt_completion['planned_body_pages']}张正文，部分稿已保留，可继续未完成页面。"
+                        if partial_ppt else delivery_decision.get("public_message") or "方案生成完成。")
+    run_audit["status"] = terminal_status
+    if local_review_repair is not None:
+        run_audit["local_review_repair"] = local_review_repair
+    if ppt_completion is not None:
+        run_audit["ppt_completion"] = ppt_completion
     run_audit = _write_run_audit(run_dir, run_audit)
-    _write_generation_phase(run_dir, "COMPLETED", delivery_decision.get("public_message") or "方案生成完成。", recoverable=False)
+    _write_generation_phase(run_dir, "TERMINAL_BLOCKED" if partial_ppt else "COMPLETED", terminal_message, recoverable=partial_ppt)
     _record_terminal_latency(
         run_id=run_id,
         brief=brief,
         provider_name=provider_name,
         longform_result=longform_result,
-        status="generation_completed",
-        eligible=True,
+        status=terminal_status,
+        eligible=not partial_ppt,
         actual_time=actual_time,
         qa_seconds=qa_seconds,
         build_id=build_id,
     )
     return {
         "run_id": run_id,
-        "status": "generation_completed",
+        "status": terminal_status,
+        "ppt_completion": ppt_completion,
+        "resume_available": partial_ppt,
         "medium": brief["medium"],
-        "artifact_name": final_path.name,
-        "download_url": f"/files/{run_id}/{final_path.name}",
+        "artifact_name": delivery_path.name,
+        "download_url": f"/files/{run_id}/{delivery_path.name}",
+        "artifact_sha256": (artifact_bindings.get("delivered") or {}).get("sha256"),
+        "product_direct_artifact_name": final_path.name,
+        "product_direct_artifact_sha256": (artifact_bindings.get("product_direct") or {}).get("sha256"),
+        "internal_master_artifact_name": (artifact_bindings.get("internal_master") or {}).get("name"),
+        "internal_master_artifact_sha256": (artifact_bindings.get("internal_master") or {}).get("sha256"),
+        "external_clean_artifact_name": (artifact_bindings.get("external_clean") or {}).get("name"),
+        "external_clean_artifact_sha256": (artifact_bindings.get("external_clean") or {}).get("sha256"),
+        "external_cleanup": {
+            "status": external_cleanup.get("status"),
+            "changed_paragraphs": external_cleanup.get("changed_paragraphs"),
+            "residual_count": external_cleanup.get("residual_count"),
+            "provider_calls": external_cleanup.get("provider_calls", 0),
+            "source_sha256": external_cleanup.get("source_sha256"),
+            "target_sha256": external_cleanup.get("target_sha256"),
+        },
         "clarification_list": generated["clarification_list"],
         "provider_metadata": generation_metadata,
         "test_mode": generation_metadata.get("test_mode", False),
@@ -1792,9 +2700,10 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         "delivery_status": delivery_decision.get("delivery_status"),
         "qa_status": delivery_decision.get("qa_status"),
         "artifact_available": True,
-        "public_message": delivery_decision.get("public_message") or public_message(delivery_decision.get("delivery_status") or "COMPLETED_CLEAN", delivery_decision.get("review_count") or 0),
+        "public_message": terminal_message if partial_ppt else delivery_decision.get("public_message") or public_message(delivery_decision.get("delivery_status") or "COMPLETED_CLEAN", delivery_decision.get("review_count") or 0),
         "review_count": delivery_decision.get("review_count") or 0,
         "qa_review_summary": delivery_decision.get("qa_review_summary") or {"issues": []},
+        **({"local_review_repair": local_review_repair} if local_review_repair is not None else {}),
         "history_label": delivery_decision.get("history_label"),
         "workflow_id": run_audit.get("workflow_id"),
         "total_processing_seconds": run_audit.get("total_processing_seconds"),
@@ -1803,6 +2712,7 @@ def generate_artifact(run_id: str, selected_positive_ids: list[str], clarificati
         "recommended_knowledge_count": len(recommended_ids),
         "selected_knowledge_count": len(selected),
         "active_guardrail_ids": guardrail_ids,
+        "content_metrics": longform_result.get("content_metrics") or {},
     }
 
 
@@ -1821,7 +2731,7 @@ def resolve_run_artifact(run_dir: Path, audit: dict[str, Any] | None = None) -> 
     meta = load_last_valid_artifact(run_dir)
     if meta.get("last_valid_artifact_path"):
         candidates.append(Path(str(meta["last_valid_artifact_path"])))
-    for folder in (run_dir, run_dir / "last_valid_artifact", run_dir / "artifact", run_dir / "_blocked_artifact"):
+    for folder in (run_dir, run_dir / "last_valid_artifact", run_dir / "artifact", run_dir / "_blocked_artifact", run_dir / "first_draft"):
         if folder.is_dir():
             candidates.extend(sorted(folder.glob("*.docx"), key=lambda item: item.stat().st_mtime, reverse=True))
             candidates.extend(sorted(folder.glob("*.pptx"), key=lambda item: item.stat().st_mtime, reverse=True))
@@ -1956,6 +2866,15 @@ def _force_rmtree(path: Path) -> None:
 
 
 def _tender_history_name(folder: Path) -> str:
+    extraction_path = folder / "tender" / "extraction.json"
+    if extraction_path.is_file():
+        try:
+            extraction = json.loads(extraction_path.read_text(encoding="utf-8-sig"))
+            name = brief_project_fields({}, extraction)["project_name"]
+            if name.get("official"):
+                return name["value"]
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
     uploads_path = folder / "tender" / "uploads.json"
     if uploads_path.is_file():
         try:
@@ -1980,9 +2899,19 @@ def _incomplete_run_row(folder: Path) -> dict[str, Any]:
                 status = loaded
         except (OSError, json.JSONDecodeError, TypeError):
             status = {}
+    from providers.cursor_account import is_cursor_provider
+
+    account = status.get("provider_name") in {"qoder_account", "zcode_cn"} or is_cursor_provider(status.get("provider_name"))
+    from tender_intake.cursor_recognition_recovery import WAITING, pending_choice
+    if status.get("recognition_outcome") == WAITING or pending_choice(folder, status):
+        status["recognition_outcome"] = WAITING
     stage = str(status.get("stage") or "")
-    if status.get("error") or "FAILED" in stage.upper():
+    if status.get("recognition_outcome") == WAITING:
+        label = "识别已暂停，等待选择"
+    elif status.get("error") or "FAILED" in stage.upper():
         label = "需求文件处理未完成"
+    elif account and status.get('recognition_outcome')=='AI_RECOGNITION_SUCCESS':
+        label='AI识别完成，待确认需求'
     elif str(status.get("pack_status") or "") == "blocked_clarification":
         label = "需求确认未完成"
     else:
@@ -2001,6 +2930,7 @@ def _incomplete_run_row(folder: Path) -> dict[str, Any]:
         "status_label": label,
         "can_resume_recommendation": False,
         "can_resume_tender": True,
+        **({'recognition_outcome':status.get('recognition_outcome')} if account else {}),
         "can_check_status": False,
         "artifact_display_name": "",
         "download_url": "",
@@ -2088,7 +3018,12 @@ def list_runs() -> list[dict[str, Any]]:
         generation_age = datetime.now().timestamp() - provider_prompt.stat().st_mtime if provider_prompt.is_file() else None
         delivery_status = str(audit.get("delivery_status") or "")
         review_count = int(audit.get("review_count") or 0)
-        if artifact.exists():
+        from planning.ppt_delivery import completion_state
+        ppt_completion = completion_state(folder) if brief.get("medium") == "PPT" else None
+        if ppt_completion is not None and not ppt_completion["complete"] and generation_started:
+            run_status = "generation_in_progress" if status_record.get("status") == "running" else "generation_partial"
+            status_label = f"正文{ppt_completion['completed_body_pages']}/{ppt_completion['planned_body_pages']}页，" + ("正在继续生成" if run_status == "generation_in_progress" else "可继续生成")
+        elif artifact.exists():
             run_status = "generation_completed"
             if delivery_status == "NEEDS_REVIEW":
                 status_label = f"待人工复核" + (f"：{review_count}项" if review_count else "")
@@ -2151,7 +3086,8 @@ def list_runs() -> list[dict[str, Any]]:
             "generated": artifact.exists(),
             "run_status": run_status,
             "status_label": status_label,
-            "can_resume_recommendation": recommendation_ready and run_status in {"waiting_todd_knowledge_confirmation", "generation_failed", "generation_interrupted", "generation_incomplete", "generation_cancelled"} and not artifact.exists(),
+            "can_resume_recommendation": recommendation_ready and (run_status == "generation_partial" or (run_status in {"waiting_todd_knowledge_confirmation", "generation_failed", "generation_interrupted", "generation_incomplete", "generation_cancelled"} and not artifact.exists())),
+            "ppt_completion": ppt_completion,
             "can_check_status": run_status == "generation_in_progress",
             "artifact_display_name": artifact.name if artifact.exists() else "",
             "download_url": f"/files/{folder.name}/{artifact.name}" if artifact.exists() else "",
@@ -2163,6 +3099,7 @@ def list_runs() -> list[dict[str, Any]]:
             "todd_final_imported": (folder / ("todd_final.docx" if brief.get("medium") == "WORD" else "todd_final.pptx")).exists(),
             "engine_label": engine_display(str(brief.get("provider_name") or "")),
             "speed_profile": brief.get("speed_profile") or "balanced",
+            "content_metrics": audit.get("content_metrics") or {},
             **timing,
             "elapsed_seconds": timing.get("total_processing_seconds") if timing.get("total_processing_seconds") is not None else timing.get("generation_stage_seconds") or 0,
         })
@@ -2204,6 +3141,7 @@ RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 if not STATE_FILE.exists():
     write_json(STATE_FILE, initial_state())
 if not COMPLIANCE_RULES.exists():
+    COMPLIANCE_RULES = RUNTIME_DIR / "provider_compliance_rules_v0.1.json"
     write_default_rules(COMPLIANCE_RULES)
 if not REVIEW_FILE.exists():
     write_json(REVIEW_FILE, {"review_type": "product_acceptance", "review_version": "MMF-004", "status": "in_progress", "updated_at": now_iso(), "answers": {}})

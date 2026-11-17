@@ -22,6 +22,9 @@ def _high_impact(requirement: dict[str, Any]) -> bool:
 
 def apply_confirmation(pack: dict[str, Any], decisions: dict[str, Any]) -> dict[str, Any]:
     updated = deepcopy(pack)
+    reviewer_role = str(decisions.get("reviewer_role") or "UNSPECIFIED")
+    reviewer_name = str(decisions.get("reviewer_name") or reviewer_role)
+    human_signoff = reviewer_role == "HUMAN" and decisions.get("human_signoff_claimed") is True
     by_id = {row["requirement_id"]: row for row in updated["requirements"]}
     auto_accept = bool((decisions or {}).get("accept_remaining", True))
     for requirement_id, decision in (decisions.get("requirements") or {}).items():
@@ -84,7 +87,8 @@ def apply_confirmation(pack: dict[str, Any], decisions: dict[str, Any]) -> dict[
         answer = str(clarification_answers.get(item["clarification_id"], "")).strip()
         if answer:
             item["answer"] = answer
-            item["answered_by"] = "todd"
+            item["answered_by"] = reviewer_name
+            item["reviewer_role"] = reviewer_role
 
     if auto_accept:
         for row in updated["requirements"]:
@@ -112,12 +116,42 @@ def apply_confirmation(pack: dict[str, Any], decisions: dict[str, Any]) -> dict[
             if fact.get("confirmation_status") == "UNCONFIRMED" and fact.get("value"):
                 fact["confirmation_status"] = "CONFIRMED"
 
+    # A template decision cannot re-confirm a fact still held conditionally.
+    held_ids = {rid for conflict in updated["conflicts"]
+                if conflict.get("resolution", "UNRESOLVED") in {"UNRESOLVED", "KEEP_CONDITIONAL"}
+                for rid in conflict.get("requirement_ids", [])}
+    for rid in held_ids:
+        if rid in by_id:
+            by_id[rid]["confirmation_status"] = "DEFERRED"
+
     for key, fact in updated.get("project_facts", {}).items():
+        if fact.get("fact_status") == "MULTI_VALUE":
+            from .fact_sources import comparison_value
+            active = [item for item in fact.get("candidates", [])
+                      if item["requirement_id"] not in held_ids
+                      and by_id.get(item["requirement_id"], {}).get("confirmation_status") == "CONFIRMED"]
+            if active and len({comparison_value(key, item["value"]) for item in active}) == 1:
+                fact.update(value=active[0]["value"], source_requirement_id=active[0]["requirement_id"],
+                            confirmation_status="CONFIRMED", fact_status="EXPLICIT_SOURCE_SELECTION")
+            else:
+                fact.update(value="", source_requirement_id=None, confirmation_status="UNCONFIRMED")
+            continue
         requirement = by_id.get(str(fact.get("source_requirement_id", "")))
         if requirement and requirement["confirmation_status"] in {"CONFIRMED", "EDITED"}:
             fact["confirmation_status"] = "CONFIRMED"
             if requirement.get("todd_edit"):
                 fact["value"] = requirement["todd_edit"]
+
+    proposal_reviews = decisions.get("proposal_reviews") or {}
+    for proposal in updated.get("provider_proposals", []):
+        decision = proposal_reviews.get(proposal["proposal_id"])
+        if decision is not None:
+            if decision != "KEEP_PENDING":
+                raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Provider提议只能保留待核实，不能作为已确认项目事实。")
+            proposal["review_status"] = "REVIEWED_KEEP_PENDING"
+            proposal["reviewer_role"] = reviewer_role
+            proposal["reviewed_by"] = reviewer_name
+    proposals_reviewed = all(row.get("review_status") == "REVIEWED_KEEP_PENDING" for row in updated.get("provider_proposals", []))
 
     high_impact_reviewed = all(row["confirmation_status"] != "UNCONFIRMED" for row in updated["requirements"] if _high_impact(row))
     conflicts_reviewed = all(row["resolution"] != "UNRESOLVED" for row in updated["conflicts"])
@@ -126,12 +160,14 @@ def apply_confirmation(pack: dict[str, Any], decisions: dict[str, Any]) -> dict[
     unresolved_blocker = any(row["resolution"] == "UNRESOLVED" and row["blocker_for_plan"] for row in updated["conflicts"])
     unconfirmed_boilerplate = any(row.get("todd_decision") == "UNCONFIRMED" for row in updated["potential_boilerplate"])
     unanswered_other = any(row["blocks_plan"] and not row.get("answer") and row["reason_code"] not in {"UNRESOLVED_CONFLICT", "UNCONFIRMED_BOILERPLATE"} for row in updated["clarification_items"])
-    ready = high_impact_reviewed and conflicts_reviewed and boilerplate_reviewed and not unresolved_blocker and not unconfirmed_boilerplate and not unanswered_other
+    ready = high_impact_reviewed and conflicts_reviewed and boilerplate_reviewed and proposals_reviewed and not unresolved_blocker and not unconfirmed_boilerplate and not unanswered_other
     updated["confirmation"] = {
-        "confirmed_at": now_iso() if ready else None, "confirmed_by": "Todd" if ready else None,
+        "confirmed_at": now_iso() if ready else None, "confirmed_by": reviewer_name if ready else None,
+        "reviewer_role": reviewer_role, "human_signoff_claimed": human_signoff,
         "high_impact_reviewed": high_impact_reviewed, "conflicts_reviewed": conflicts_reviewed,
         "boilerplate_reviewed": boilerplate_reviewed, "missing_reviewed": missing_reviewed,
         "ready_for_brief_seed": ready,
+        "provider_proposals_reviewed": proposals_reviewed,
     }
     updated["status"] = "ready_for_plan" if ready else "blocked_clarification"
     updated["pack_version"] = int(updated.get("pack_version", 1)) + 1
@@ -142,12 +178,28 @@ def _confirmed_texts(pack: dict[str, Any], requirement_type: str) -> list[str]:
     return [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["requirement_type"] == requirement_type and row["confirmation_status"] in {"CONFIRMED", "EDITED"} and not row.get("excluded_from_solution_body")]
 
 
-def seed_brief(pack: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
+def seed_brief(pack: dict[str, Any], options: dict[str, Any], *,
+               project_fields: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     if not pack.get("confirmation", {}).get("ready_for_brief_seed"):
         raise TenderError("UNDERSTAND_SCHEMA_INVALID", "Requirement Pack尚未完成Todd确认，不能播种Brief。")
     facts = {key: row.get("value") for key, row in pack.get("project_facts", {}).items() if row.get("confirmation_status") == "CONFIRMED"}
-    project_name = str(facts.get("project_name") or options.get("project_name") or "").strip() or "未命名项目"
-    project_type = str(facts.get("project_type") or options.get("project_type") or "").strip() or "物业服务项目"
+    if project_fields is None:
+        project_name = str(facts.get("project_name") or options.get("project_name") or "").strip() or "未命名项目"
+        project_type = str(facts.get("project_type") or options.get("project_type") or "").strip() or "物业服务项目"
+    else:
+        name_field = project_fields["project_name"]
+        project_name = (name_field["value"] if name_field.get("official") else
+                        str(options.get("project_name") or "").strip() or name_field["value"])
+        project_type = str(options.get("project_type") or "").strip() or project_fields["project_type"]["value"]
+        if not project_name or project_name == "未命名项目" or not project_type:
+            missing = [label for label, present in (("项目名称", project_name and project_name != "未命名项目"),
+                                                     ("项目类型", project_type)) if not present]
+            raise TenderError("UNDERSTAND_SCHEMA_INVALID", "请补充" + "、".join(missing) + "后继续。")
+    from providers.cursor_account import is_cursor_provider
+
+    provider_name = options.get('provider_name')
+    if (provider_name in {'zcode_cn','qoder_account'} or is_cursor_provider(provider_name)) and project_name=='未命名项目':
+        raise TenderError('UNDERSTAND_SCHEMA_INVALID','请确认项目名称后继续，不能以未命名项目生成技术标。')
     confirmed_requirements = [str(row.get("todd_edit") or row["normalized_requirement"]) for row in pack["requirements"] if row["confirmation_status"] in {"CONFIRMED", "EDITED"} and not row.get("excluded_from_solution_body")]
     excluded = _confirmed_texts(pack, "exclusion")
     service_scope_parts = [text for text in confirmed_requirements if text not in excluded]
@@ -174,5 +226,6 @@ def seed_brief(pack: dict[str, Any], options: dict[str, Any]) -> dict[str, Any]:
         "requirement_pack_id": pack["pack_id"],
         "requirement_pack_version": pack.get("pack_version", 1),
         "speed_profile": str(options.get("speed_profile") or "balanced"),
+        "document_scale": str(options.get("document_scale") or "regular_solution"),
         "max_parallelism": options.get("max_parallelism"),
     }

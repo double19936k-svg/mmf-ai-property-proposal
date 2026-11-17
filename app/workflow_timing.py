@@ -114,15 +114,19 @@ def set_active_stage(run_dir: Path, stage: str, *, workflow_kind: str = "unknown
         return clear_active_stage(run_dir)
     with _ACTIVE_GUARD:
         current = _ACTIVE_STAGES.get(_active_key(run_dir))
-        if current and current.get("stage") == stage_name:
-            return load_workflow_timing(run_dir)
-        active = {
-            "stage": stage_name,
-            "started_monotonic": time.monotonic(),
-            "started_at": _now_iso(),
-            "pid": os.getpid(),
-        }
-        _ACTIVE_STAGES[_active_key(run_dir)] = active
+        restart_timer = not (current and current.get("stage") == stage_name)
+        if restart_timer:
+            active = {
+                "stage": stage_name,
+                "started_monotonic": time.monotonic(),
+                "started_at": _now_iso(),
+                "pid": os.getpid(),
+            }
+            _ACTIVE_STAGES[_active_key(run_dir)] = active
+    # load_workflow_timing takes the per-path lock before _ACTIVE_GUARD; calling it
+    # from inside this guard inverts the order and deadlocks against a concurrent reader.
+    if not restart_timer:
+        return load_workflow_timing(run_dir)
     with _lock(path):
         payload = _read(path) or _new_payload(workflow_kind)
         payload["status"] = "processing"
@@ -197,8 +201,11 @@ def record_stage_duration(
         payload = _read(path)
         if not payload.get("workflow_id"):
             payload = _new_payload(workflow_kind)
-        payload["status"] = "processing"
-        payload["workflow_completed_at"] = None
+        # A late stage finally still records its cost, but cannot reopen a
+        # workflow already stopped by the user. A genuine resume uses ensure_workflow.
+        if payload.get("status") not in {"completed", "failed", "cancelled"}:
+            payload["status"] = "processing"
+            payload["workflow_completed_at"] = None
         stages = payload.setdefault("stage_timings", {})
         row = stages.setdefault(stage, {"elapsed_seconds": 0.0, "attempt_count": 0, "segments": []})
         elapsed = round(max(0.0, float(elapsed_seconds or 0.0)), 3)

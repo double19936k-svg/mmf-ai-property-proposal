@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from compliance import apply_numeric_commitment_repairs, evaluate_compliance
-from governance.artifact_qa import apply_artifact_repairs, evaluate_artifact, merge_longform_qa
+from governance.artifact_qa import apply_artifact_repairs, evaluate_artifact, evaluate_ppt_artifact, merge_longform_qa
 from governance.commitment_provenance import apply_local_repairs, evaluate_commitments
 from governance.customer_hygiene import apply_hygiene_tree
 from governance.text_sanitize import rewrite_unconfirmed_durations, sanitize_public_text
@@ -121,7 +121,8 @@ def recover_governance(
     current = generated
     audit: list[dict[str, Any]] = []
     commitment = evaluate_commitments(brief, contracts, current)
-    artifact_qa = merge_longform_qa(evaluate_artifact(current, canonical_facts=canonical_facts), depth)
+    is_ppt = str((brief or {}).get('medium') or '').upper() == 'PPT'
+    artifact_qa = _evaluate_for_medium(brief, current, canonical_facts, depth, is_ppt)
     compliance = evaluate_compliance(brief, positives, guardrails, current)
     level = classify_reports(compliance, commitment, artifact_qa, quality)
     for round_no in range(1, max_rounds + 1):
@@ -133,7 +134,7 @@ def recover_governance(
             before = {"compliance": compliance.get("status"), "commitment": commitment.get("status"), "artifact_qa": artifact_qa.get("status")}
             current = apply_local_recovery(current, compliance)
             commitment = evaluate_commitments(brief, contracts, current)
-            artifact_qa = merge_longform_qa(evaluate_artifact(current, canonical_facts=canonical_facts), depth)
+            artifact_qa = _evaluate_for_medium(brief, current, canonical_facts, depth, is_ppt)
             compliance = evaluate_compliance(brief, positives, guardrails, current)
             level = classify_reports(compliance, commitment, artifact_qa, quality)
             audit.append({
@@ -241,3 +242,10 @@ def accept_leftover_findings(report: dict[str, Any] | None) -> dict[str, Any]:
         "leftover_accepted": accepted,
         "summary": {**(current.get("summary") or {}), "block_count": block_count, "warning_count": warning_count},
     }
+
+
+def _evaluate_for_medium(brief: dict[str, Any], current: dict[str, Any], canonical_facts: dict[str, Any] | None, depth: dict[str, Any] | None, is_ppt: bool) -> dict[str, Any]:
+    """按输出媒介选择 QA 量尺：PPT 用幻灯片结构 QA，Word 用长文深度合并 QA。"""
+    if is_ppt:
+        return evaluate_ppt_artifact(current, canonical_facts=canonical_facts)
+    return merge_longform_qa(evaluate_artifact(current, canonical_facts=canonical_facts), depth)

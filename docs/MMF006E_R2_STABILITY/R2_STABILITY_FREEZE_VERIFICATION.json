@@ -1,0 +1,28 @@
+{
+  "status": "MMF006E_R2_STABILITY_FREEZE_VERIFIED",
+  "STABLE_BASELINE_BUILD_ID": "MMF006E-R2.2-1a1c2db17c61-20260909060616",
+  "PREVIOUS_BUILD_ID": "MMF006E-R2.4.3-4df94d1ceea6-20260909233832",
+  "CURRENT_BUILD_ID": "MMF006E-R2.4.4-68d219d0c711-20260910003956",
+  "TEST_TARGET": "production_dist",
+  "runtime_source": "dist",
+  "real_provider_longform_run": false,
+  "KNOWLEDGE_ZERO_ALLOWED": "PASS",
+  "KNOWLEDGE_ALL_DESELECT_ALLOWED": "PASS",
+  "KNOWLEDGE_SELECTED_ALLOWED": "PASS",
+  "FLOW_A_END_TO_END": "PASS",
+  "FLOW_B_END_TO_END": "PASS",
+  "LOCAL_FALLBACK_CONTINUE": "PASS",
+  "AUTO_REPAIR_NO_FALSE_FINAL_ERROR": "PASS",
+  "FINAL_QA_BLOCK_REAL_FAILURE": "PASS",
+  "LIVE_TIMER_REGRESSION": "PASS",
+  "OPEN_FOLDER_REGRESSION": "PASS",
+  "PRODUCTION_DIST": "PASS",
+  "FULL_WORKFLOW_REGRESSION_TESTS_ADDED": true,
+  "modified_006D_R10": false,
+  "modified_00": false,
+  "modified_github_release_candidate": false,
+  "started_MMF007": false,
+  "remaining_issues": [
+    "standard-mode scenarios such as 前期介入 can still plan adaptive extra sections that mock/standard generation does not emit; Final QA then blocks. Full-proposal mock E2E passes. Not caused by the knowledge optionality fix."
+  ]
+}

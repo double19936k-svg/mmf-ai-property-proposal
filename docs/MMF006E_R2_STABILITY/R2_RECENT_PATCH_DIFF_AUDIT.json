@@ -1,0 +1,194 @@
+{
+  "task": "MMF-006E-R2 Stability Freeze — Recent Patch Diff Audit",
+  "audit_phase": "read_only_before_minimal_fix",
+  "audited_at": "2026-09-10",
+  "STABLE_BASELINE_BUILD_ID": "MMF006E-R2.2-1a1c2db17c61-20260909060616",
+  "STABLE_BASELINE_STATUS": "MMF006E_R2_2_REMAINING_ISSUES_VERIFIED",
+  "STABLE_BASELINE_NOTE": "Last independently verified full-chain mock production_dist. R2.2 source_before snapshot is R2.1 (MMF006E-R2.1-e7329550b204-20260908150816).",
+  "CURRENT_BUILD_ID": "MMF006E-R2.4.3-4df94d1ceea6-20260909233832",
+  "CURRENT_DIST_VERSION": "0.1.1-alpha-r2.4.3",
+  "comparison": {
+    "from": "runtime/mmf006e_r22_control/source_before (R2.1, pre-R2.2)",
+    "to": "current MMF_Application source (R2.4.3)",
+    "method": "sha256 of tracked source files; runtime/runs/output/logs/dist/node_modules excluded"
+  },
+  "file_counts": {
+    "baseline_tracked": 102,
+    "current_tracked": 123,
+    "changed": 39,
+    "added": 21,
+    "removed": 0,
+    "r2_2_to_current_modified_or_added": 60
+  },
+  "changed_files": [
+    {"file": "app/app_core.py", "layer": ["app_core", "generation", "knowledge", "workflow state"], "hotspot": true},
+    {"file": "app/server.py", "layer": ["server", "generation", "history"], "hotspot": true},
+    {"file": "static/index.html", "layer": ["UI", "knowledge", "timing", "history"], "hotspot": true},
+    {"file": "app/desktop_actions.py", "layer": ["UI", "history"], "hotspot": false},
+    {"file": "app/env_check.py", "layer": ["packaging"], "hotspot": false},
+    {"file": "app/governance/__init__.py", "layer": ["QA"], "hotspot": false},
+    {"file": "app/governance/artifact_qa.py", "layer": ["QA"], "hotspot": true},
+    {"file": "app/governance/commitment_provenance.py", "layer": ["QA"], "hotspot": false},
+    {"file": "app/longform/batch_planner.py", "layer": ["generation"], "hotspot": false},
+    {"file": "app/longform/eta.py", "layer": ["timing"], "hotspot": false},
+    {"file": "app/longform/factory.py", "layer": ["generation"], "hotspot": true},
+    {"file": "app/longform/orchestrator.py", "layer": ["generation"], "hotspot": true},
+    {"file": "app/longform/scheduler.py", "layer": ["generation", "provider"], "hotspot": true},
+    {"file": "app/paths.py", "layer": ["packaging"], "hotspot": false},
+    {"file": "app/planning/canonical.py", "layer": ["generation"], "hotspot": false},
+    {"file": "app/planning/planner.py", "layer": ["generation"], "hotspot": true},
+    {"file": "app/provider_view.py", "layer": ["provider", "UI"], "hotspot": false},
+    {"file": "app/providers/base.py", "layer": ["provider"], "hotspot": false},
+    {"file": "app/providers/capability.py", "layer": ["provider"], "hotspot": false},
+    {"file": "app/providers/execution_reliability.py", "layer": ["provider"], "hotspot": false},
+    {"file": "app/providers/grok_build.py", "layer": ["provider"], "hotspot": false},
+    {"file": "app/providers/manager.py", "layer": ["provider"], "hotspot": true},
+    {"file": "app/providers/mock.py", "layer": ["provider", "generation"], "hotspot": false},
+    {"file": "app/providers/openai_compatible.py", "layer": ["provider"], "hotspot": true},
+    {"file": "app/tender_intake/confirmation.py", "layer": ["workflow state"], "hotspot": true},
+    {"file": "app/tender_intake/models.py", "layer": ["workflow state"], "hotspot": false},
+    {"file": "app/tender_intake/pack_builder.py", "layer": ["workflow state"], "hotspot": false},
+    {"file": "app/tender_intake/understanding.py", "layer": ["workflow state", "provider"], "hotspot": true},
+    {"file": "app/user_errors.py", "layer": ["server"], "hotspot": false},
+    {"file": "build_manifest.json", "layer": ["packaging"], "hotspot": false},
+    {"file": "providers/grok_bridge/grok_bridge.py", "layer": ["provider"], "hotspot": true},
+    {"file": "tests/test_cleanroom_deployment.py", "layer": ["packaging"], "hotspot": false},
+    {"file": "tests/test_longform_orchestrator.py", "layer": ["generation"], "hotspot": false},
+    {"file": "tests/test_mmf006e_r21_q01_q04.py", "layer": ["generation"], "hotspot": false},
+    {"file": "tests/test_mmf006e_r2_adversarial.py", "layer": ["generation"], "hotspot": false},
+    {"file": "tests/test_mmf006e_r2_scheduler.py", "layer": ["generation"], "hotspot": false},
+    {"file": "tools/install.ps1", "layer": ["packaging"], "hotspot": false},
+    {"file": "tools/launch_mmf.ps1", "layer": ["packaging"], "hotspot": false},
+    {"file": "tools/pack_portable.py", "layer": ["packaging"], "hotspot": true}
+  ],
+  "added_files": [
+    {"file": "app/check_ppt_runtime.mjs", "layer": ["packaging"]},
+    {"file": "app/governance/final_artifact_qa.py", "layer": ["QA"]},
+    {"file": "app/providers/capability_probe.py", "layer": ["provider"]},
+    {"file": "app/providers/rate_limit.py", "layer": ["provider"]},
+    {"file": "app/providers/token_usage.py", "layer": ["provider"]},
+    {"file": "app/workflow_timing.py", "layer": ["timing", "workflow state"]},
+    {"file": "broker/user_session_broker.py", "layer": ["packaging"]},
+    {"file": "config/app.json", "layer": ["packaging"]},
+    {"file": "config/providers.example.json", "layer": ["provider"]},
+    {"file": "docs/MMF006E_R2_2/DEVELOPMENT_REPORT.md", "layer": ["packaging"]},
+    {"file": "requirements.txt", "layer": ["packaging"]},
+    {"file": "tests/test_glm_provider.py", "layer": ["provider"]},
+    {"file": "tests/test_mmf006e_r22_final_guard.py", "layer": ["provider"]},
+    {"file": "tests/test_mmf006e_r22_q05_q06_bridge.py", "layer": ["provider", "timing"]},
+    {"file": "tests/test_mmf006e_r23_requirement_recognition.py", "layer": ["workflow state"]},
+    {"file": "tests/test_mmf006e_r241_workflow_timing.py", "layer": ["timing"]},
+    {"file": "tests/test_mmf006e_r242_live_artifact_closure.py", "layer": ["QA"]},
+    {"file": "tests/test_mmf006e_r243_provider_recognition.py", "layer": ["provider"]},
+    {"file": "tests/test_mmf006e_r24_artifact_qa.py", "layer": ["QA"]},
+    {"file": "tests/test_ppt_runtime_repair.py", "layer": ["packaging"]},
+    {"file": "tools/mmf006e_r24_diagnose_runs.py", "layer": ["QA"]}
+  ],
+  "HOTSPOT_FILES": [
+    {
+      "file": "app/app_core.py",
+      "unique_hashes_r1_1_to_current": 4,
+      "change_count": "every R2 round",
+      "affected_features": ["knowledge recommend", "generation entry", "tender confirm", "longform", "QA", "timing", "history"],
+      "regression_risk": "CRITICAL"
+    },
+    {
+      "file": "tools/pack_portable.py",
+      "unique_hashes_r1_1_to_current": 4,
+      "change_count": "every R2 round",
+      "affected_features": ["production_dist sync"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "app/server.py",
+      "unique_hashes_r1_1_to_current": 3,
+      "change_count": "R2, R2.4.x",
+      "affected_features": ["HTTP generate", "tender", "open folder", "history"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "static/index.html",
+      "unique_hashes_r1_1_to_current": 3,
+      "change_count": "R2, R2.4.x",
+      "affected_features": ["knowledge UI", "timer", "open folder", "tender confirm"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "app/longform/orchestrator.py",
+      "unique_hashes_r1_1_to_current": 3,
+      "change_count": "R2, R2.4",
+      "affected_features": ["generation", "auto repair"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "app/longform/scheduler.py",
+      "unique_hashes_r1_1_to_current": 3,
+      "change_count": "R2.1, R2.2",
+      "affected_features": ["concurrency", "latency"],
+      "regression_risk": "MEDIUM"
+    },
+    {
+      "file": "app/providers/openai_compatible.py",
+      "unique_hashes_r1_1_to_current": 3,
+      "change_count": "R2, R2.4.3",
+      "affected_features": ["provider fallback", "serialization repair", "WinError 10013"],
+      "regression_risk": "HIGH — can change missing_information and therefore knowledge gate outcomes"
+    },
+    {
+      "file": "app/tender_intake/understanding.py",
+      "unique_hashes_r1_1_to_current": 2,
+      "change_count": "R2.3 / R2.4.3",
+      "affected_features": ["requirement recognition", "local fallback"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "app/governance/artifact_qa.py",
+      "unique_hashes_r1_1_to_current": 2,
+      "change_count": "R2.4",
+      "affected_features": ["section QA", "auto repair"],
+      "regression_risk": "HIGH"
+    },
+    {
+      "file": "app/governance/final_artifact_qa.py",
+      "unique_hashes_r1_1_to_current": 1,
+      "change_count": "added R2.4 / R2.4.2",
+      "affected_features": ["final DOCX QA"],
+      "regression_risk": "HIGH"
+    }
+  ],
+  "unchanged_core_knowledge_files": [
+    {"file": "app/governance/selection_gate.py", "note": "identical since R1.1; CONDITIONAL demotion rule is old"},
+    {"file": "app/governance/knowledge_usage_contract.py", "note": "identical since R1.1; human_confirmation_question only for two outsourcing KUs"}
+  ],
+  "new_rule_old_validation_conflicts": [
+    {
+      "id": "KNOWLEDGE_OPTIONALITY_SPLIT",
+      "new_rule": "UI treats empty confirmable list as legal: '本次没有需要逐条确认的知识项。'",
+      "old_validation": "generate_artifact raises MMFError('请至少保留一条推荐知识。') when selected is empty",
+      "second_old_validation": "_recommend_knowledge_impl raises MMFError('当前引擎没有推荐出可用知识。请重试，或改用千问。') when provider recommended_positive is empty",
+      "evidence_run": "dist/runs/tender_20260910_000212_62888f",
+      "evidence": {
+        "recommended_positive_count": 10,
+        "auto_selected_positive_ids": [],
+        "conditional_confirmations": ["KU-9007-83FCB89D", "KU-9021-6AB7A5E7"],
+        "shown_filter": "recommended_positive ∩ (auto_selected ∪ conditional_confirmations) = empty because confirmation questions are not on the 10 recommended KUs",
+        "generation_status.error": "请至少保留一条推荐知识。"
+      }
+    }
+  ],
+  "live_bug_root_cause": {
+    "user_visible": "知识确认页显示无待确认项，点击生成后报请至少保留一条推荐知识",
+    "actual_state": "recommended_positive has 10 KUs; selection_gate marked all SELECTED rows CONDITIONAL because missing_information intersects 外包/封闭/审图/人员; auto_selected empty; contracts have empty human_confirmation_question so UI hides them",
+    "contract_bug": "frontend empty-shown is treated as legal; generation entry still requires selected_count >= 1",
+    "not_caused_by": "selection_gate.py itself was not modified in R2.2–R2.4.3",
+    "amplified_by": ["openai_compatible serialization_repair filling missing keys", "tender missing_information population", "UI shown-filter requiring auto_selected or confirmation question"]
+  },
+  "OUT_OF_SCOPE_CHANGE": [],
+  "out_of_scope_note": "No edits found under 00_项目管理与索引, MMF-006D/R10, github_release_candidate, or MMF-007. Knowledge hard-require is pre-MMF-006E (present since MMF-001) and was not newly added by R2.2–R2.4.3; it was also not removed when UI began allowing empty confirmation. Repeated multi-feature edits to app_core.py/server.py/index.html are in-scope for those patch rounds but are the coupling risk.",
+  "protected_trees_untouched": [
+    "00_项目管理与索引",
+    "MMF-006D/R10",
+    "github_release_candidate",
+    "MMF-007"
+  ]
+}

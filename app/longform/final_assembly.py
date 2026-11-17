@@ -308,3 +308,99 @@ def prepare_006d(*, run_root: Path, stage_root: Path, plan_root: Path, provider:
     ppt_input = {"brief": {"project_name": global_state["project_facts"]["project_name"]["value"], "project_type": global_state["project_facts"]["project_type"]["value"], "scenario": "物业服务方案", "requirements": "安全、专业、可执行的园区物业服务"}, "artifact": {"title": "青岛智造产业园物业服务方案", "subtitle": "DRAFT_FOR_FINAL_ACCEPTANCE", "slides": ppt_slides}, "source_run": str(run_root), "overflow": {"found": original_overflow, "resolved": original_overflow, "retained": 0}}
     write_json(stage_root / "working" / "ppt_assembly_input.json", ppt_input)
     return {"freeze": freeze, "coverage": coverage, "repetition": repetition, "consistency": consistency, "governance": governance, "changes": changes, "ppt_overflow": ppt_input["overflow"]}
+
+
+SCORING_TEXT_RE = re.compile(r"评分标准|评分项|评分细则|分值|得分|评标办法|评标细则|投标报价|商务及报价")
+
+
+def _strip_scoring(text: str) -> str:
+    """评分标准属于招标文件内容，不得进入面向甲方的汇报PPT。"""
+    value = str(text or "").strip()
+    if SCORING_TEXT_RE.search(value):
+        return ""
+    return value
+
+
+def _block_pairs(blocks: list[Any]) -> list[dict[str, str]]:
+    """从 content_blocks 提取 标题+描述 对，兼容多种字段命名。"""
+    pairs: list[dict[str, str]] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        title = _shorten(str(block.get("title") or block.get("name") or block.get("label") or ""), 24)
+        body = str(block.get("description") or block.get("body") or block.get("detail") or "").strip()
+        if not body:
+            points = block.get("points") or block.get("items") or []
+            body = "；".join(str(point) for point in points if str(point).strip())
+        body = _strip_scoring(body)
+        if body:
+            pairs.append({"title": title or "服务要点", "body": _shorten(body, 90)})
+    return pairs
+
+
+def build_ppt_slide_data(payload: dict[str, Any], plan_row: dict[str, Any] | None = None, index: int = 0) -> dict[str, Any]:
+    """把单页富 payload 映射为渲染器数据（layout + 结构化内容）。
+
+    与 _ppt_renderer_data 不同：按真实 payload 字段（title/description、
+    visual_data.chart_type 等）映射，而不是拍扁为 overview 三字段。
+    """
+    from planning.ppt_service import VERSION, render_data
+    if (plan_row or {}).get("profile_p_contract") == VERSION:
+        return render_data(payload, plan_row)
+    blocks = payload.get("content_blocks") or []
+    pairs = _block_pairs(blocks)
+    visual = payload.get("visual_data") or {}
+    chart_type = str(visual.get("chart_type") or visual.get("type") or "").lower()
+    role = str((plan_row or {}).get("slide_role") or "")
+    intent = str(payload.get("component_intent") or "")
+
+    headline = _shorten(str(payload.get("headline") or ""), 40)
+    key_message = _strip_scoring(str(payload.get("key_message") or payload.get("subheadline") or ""))
+
+    def _bullets(limit: int = 5) -> list[str]:
+        items = [pair["body"] for pair in pairs if _strip_scoring(pair["body"])]
+        if not items:
+            for block in blocks:
+                if isinstance(block, dict):
+                    items.extend(_strip_scoring(str(point)) for point in (block.get("points") or []) if str(point).strip())
+        items = [item for item in items if item]
+        return [_shorten(item, 60) for item in items][:limit]
+
+    wants_process = any(token in f"{chart_type} {role} {intent}" for token in ("process", "flow", "timeline", "流程", "步骤", "时间轴"))
+    wants_table = role in {"comparison", "evidence", "matrix"} or "table" in chart_type or "对比" in intent
+    wants_modules = any(token in f"{chart_type} {intent}" for token in ("cards", "pillar", "hub", "architecture", "grid", "模块", "架构", "体系")) or (len(pairs) >= 3 and not wants_process)
+
+    if wants_process:
+        raw_steps = visual.get("elements") or visual.get("steps") or [
+            f"{pair['title']}：{pair['body']}" for pair in pairs
+        ]
+        if not raw_steps:
+            raw_steps = _bullets(5)
+        steps = []
+        for item in list(raw_steps)[:5]:
+            if isinstance(item, dict):
+                # elements 形如 {id, label, description/detail}，取其语义字段
+                title_raw = str(item.get("label") or item.get("title") or item.get("name") or item.get("id") or "")
+                body_raw = str(item.get("description") or item.get("detail") or item.get("body") or title_raw)
+            else:
+                value = _strip_scoring(str(item))
+                parts = re.split(r"[：:]", _shorten(value, 60), maxsplit=1)
+                title_raw, body_raw = parts[0], (parts[1] if len(parts) > 1 else parts[0])
+            title_raw = _strip_scoring(title_raw)
+            body_raw = _strip_scoring(body_raw)
+            if not title_raw and not body_raw:
+                continue
+            steps.append({"title": _shorten(title_raw or body_raw, 12), "body": _shorten(body_raw if body_raw != title_raw else title_raw, 36)})
+        if len(steps) >= 2:
+            return {"layout": "process", "steps": steps, "bullets": _bullets(3), "chapter_id": (plan_row or {}).get("chapter_id", "")}
+    if wants_table and pairs:
+        rows = [[pair["title"], pair["body"]] for pair in pairs[:6]]
+        return {"layout": "table", "table": {"columns": ["维度", "执行要点"], "rows": rows}, "bullets": _bullets(3), "chapter_id": (plan_row or {}).get("chapter_id", "")}
+    if wants_modules and pairs:
+        modules = [{"title": pair["title"], "body": pair["body"]} for pair in pairs[:6]]
+        center = str(visual.get("center_node") or "").strip()
+        return {"layout": "modules", "modules": modules, "center": _shorten(center, 20), "bullets": _bullets(3), "chapter_id": (plan_row or {}).get("chapter_id", "")}
+    bullets = _bullets(5)
+    if not bullets and key_message:
+        bullets = [key_message]
+    return {"layout": "overview", "bullets": bullets, "chapter_id": (plan_row or {}).get("chapter_id", "")}

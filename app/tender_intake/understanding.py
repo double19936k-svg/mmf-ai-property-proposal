@@ -10,6 +10,106 @@ from .models import TenderError, now_iso, write_json
 from .pack_builder import build_requirement_pack, candidates_from_extraction
 
 
+RECOGNITION_TIMEOUT_SECONDS = 600
+RECOGNITION_MAX_ATTEMPTS = 2
+RECOGNITION_RETRY_DELAY_SECONDS = 1.0
+
+
+def _is_transient_provider_error(exc: Exception) -> bool:
+    """Retry only failures that can plausibly recover without user action."""
+    text = str(exc or "").lower()
+    deterministic = (
+        "401",
+        "403",
+        "unauthorized",
+        "forbidden",
+        "invalid_api_key",
+        "invalid api-key",
+        "密钥无效",
+        "没有当前模型权限",
+    )
+    if any(token in text for token in deterministic):
+        return False
+    error_code = str(getattr(exc, "error_code", "") or "").upper()
+    if error_code in {'CURSOR_RESPONSE_UNKNOWN','CURSOR_RECOGNITION_CONNECTION_RESET','CURSOR_RECOGNITION_CONNECTION_STALLED','CURSOR_NOT_DISPATCHED','ZCODE_RESPONSE_UNKNOWN','ZCODE_NO_AUTOMATIC_RESEND','ZCODE_REQUEST_INCOMPLETE','ZCODE_NOT_DISPATCHED','ZCODE_LOGIN_REQUIRED'}:
+        return False
+    if error_code in {"RATE_LIMIT", "NETWORK_SOCKET_PERMISSION_ERROR"}:
+        return True
+    transient = (
+        "timeout",
+        "timed out",
+        "超时",
+        "429",
+        "rate limit",
+        "temporarily unavailable",
+        "connection reset",
+        "network",
+        "网络",
+        "10013",
+    )
+    return any(token in text for token in transient)
+
+
+def _invoke_recognition(provider: Any, request: dict[str, Any], call_dir: Path, *, chunk=None, extraction=None, progress=None) -> dict[str, Any]:
+    """One bounded recovery for a proven token-limit terminal; never replay unknown jobs."""
+    if (chunk is not None and extraction is not None
+            and (getattr(provider,'config',{}) or {}).get('provider_type') in {'zcode_account','cursor_account'}):
+        from .zcode_segments import plan_zcode_segments
+        from .recognition_segments import execute_segments
+        segments=plan_zcode_segments(chunk,extraction,_prompt)
+        # Previously dispatched parents retain their identities and unknown-result guard.
+        legacy=any((call_dir/name).exists() for name in ('zcode_stream_progress.json','zcode_raw_response.json'))
+        if len(segments)>1 and not legacy:
+            return execute_segments(provider,request,chunk,extraction,call_dir,segments,_prompt,_mock_payload,progress,max_tokens=16384)
+    if (chunk is not None and extraction is not None
+            and (getattr(provider, 'config', {}) or {}).get('provider_type') == 'qoder_account'):
+        from .recognition_segments import plan_segments, execute_segments
+        from .qoder_recognition_recovery import approved_reply_split, split_dense_paragraphs
+        segments = plan_segments(chunk, extraction)
+        # An upgrade must not replace an already dispatched, unknown parent with
+        # fresh child identities. Let the original ledger resolve/block it first.
+        legacy_calls = [call_dir, call_dir / 'output_budget_retry']
+        legacy_unresolved = False
+        for legacy_dir in legacy_calls:
+            if (legacy_dir / 'qoder_request_identity.json').is_file():
+                raw_path = legacy_dir / 'qoder_raw_answer.json'
+                raw = json.loads(raw_path.read_text(encoding='utf-8')) if raw_path.is_file() else {}
+                if raw.get('stop_reason') != 'max_tokens':
+                    legacy_unresolved = True
+        split_approved = approved_reply_split(call_dir, request['task_id'])
+        if len(segments) == 1 and (not legacy_unresolved or split_approved):
+            segments = split_dense_paragraphs(chunk)
+        if len(segments) > 1 and (not legacy_unresolved or split_approved):
+            return execute_segments(provider, request, chunk, extraction, call_dir, segments, _prompt, _mock_payload, progress)
+    try:
+        return provider.invoke_structured(request, call_dir)
+    except Exception as exc:
+        if (getattr(exc, "error_code", "") != "QODER_OUTPUT_TRUNCATED"
+                or request.get("generation_mode") != "tender_requirement_recognition"
+                or int(getattr(exc, "max_output_tokens", 8000) or 8000) >= 32000
+                or int(request.get("max_tokens") or 8000) >= 32000):
+            raise
+        # Reuse unchanged source text and schema. Only the failed chunk gets a new,
+        # deterministic identity with a larger output budget; prior PASS caches stay.
+        retry = {**request, "task_id": str(request["task_id"]) + "-output-32000", "max_tokens": 32000}
+        if request.get("request_id"):
+            retry["request_id"] = str(request["request_id"]) + "-output-32000"
+        audit = {"trigger": "QODER_OUTPUT_TRUNCATED", "max_recovery_attempts": 1,
+            "original_task_id": request["task_id"], "recovery_task_id": retry["task_id"],
+            "max_output_tokens": 32000, "source_and_schema_unchanged": True, "status": "started"}
+        call_dir.mkdir(parents=True, exist_ok=True)
+        write_json(call_dir / "output_budget_recovery.json", audit)
+        try:
+            payload = provider.invoke_structured(retry, call_dir / "output_budget_retry")
+        except Exception:
+            write_json(call_dir / "output_budget_recovery.json", {**audit, "status": "failed"})
+            raise
+        metadata = dict(payload.get("provider_metadata") or {})
+        payload = {**payload, "provider_metadata": {**metadata, "output_budget_recovery": {**audit, "status": "returned"}}}
+        write_json(call_dir / "output_budget_recovery.json", {**audit, "status": "returned"})
+        return payload
+
+
 PROVIDER_REQUIRED_KEYS = {
     "chunk_id",
     "proposed_items",
@@ -122,7 +222,8 @@ def _mock_payload(extraction: dict[str, Any], chunk: dict[str, Any]) -> dict[str
 
 
 def _prompt(chunk: dict[str, Any]) -> str:
-    public_blocks = [{"id": row["source_id"], "kind": row["kind"], "text": row["text"]} for row in chunk["blocks"]]
+    public_blocks = [{"id": row["source_id"], "kind": row["kind"], "text": row["text"],
+        **({"table_context": row["table_context"]} if row.get("table_context") else {})} for row in chunk["blocks"]]
     return f"""你是招标/服务需求文件的Requirement Understanding引擎，只提出候选，不拥有最终Pack权威。
 
 任务要求：
@@ -133,6 +234,8 @@ def _prompt(chunk: dict[str, Any]) -> str:
 5. 不删除重复项、不自动解决冲突、不自动删除疑似模板；本地Pack Builder将负责ID、去重、冲突与最终分类。
 6. 只返回一个JSON对象，根字段必须且只能为chunk_id、proposed_items、proposed_conflicts、proposed_boilerplate、proposed_scoring_items、chunk_missing_facts。
 7. proposed_items每项至少含normalized_requirement、requirement_type、mandatory_level_guess、classification_guess、source_id、source_excerpt、confidence。
+8. proposed_conflicts每项用description和candidates说明；至少两个candidate分别含source_id、source_excerpt、value。source_excerpt必须逐字存在于当前块；不得用本块id冒充块外另一处，只有一处证据时保留为chunk_missing_facts待核实。
+9. proposed_boilerplate每项含source_id、source_excerpt、reason；chunk_missing_facts只描述当前块未显示的事项，不断言整份文件缺失，不填造事实。
 
 chunk_id={chunk['chunk_id']}
 blocks={json.dumps(public_blocks, ensure_ascii=False, separators=(",", ":"))}
@@ -204,20 +307,47 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
     status_path = tender_dir / "status.json"
     status = {
         "schema_version": "mmf006a-status-v0.1", "run_id": run_dir.name, "upload_completed": True,
+        "provider_name": (getattr(provider,'config',{}) or {}).get('provider_name'),
         "extraction_completed": True, "chunks_total": len(chunks), "chunks_completed": 0, "failed_chunk": None,
         "pack_status": "understanding", "stage": "A4_PROVIDER_UNDERSTANDING", "updated_at": now_iso(),
     }
     write_json(status_path, status)
+    provider_type = (getattr(provider, 'config', {}) or {}).get('provider_type')
+    if provider_type in {'zcode_account', 'cursor_account'}:
+        from .zcode_segments import pending_request_plan
+        plan=pending_request_plan(chunks,extraction,_prompt,chunks_dir)
+        prefix = 'cursor' if provider_type == 'cursor_account' else 'zcode'
+        if prefix == 'cursor':
+            plan['provider'] = provider.config['provider_name']
+            plan['max_output_tokens'] = None
+        write_json(tender_dir/f'{prefix}_recognition_plan.json',plan)
+        status[f'{prefix}_request_plan']=plan
+        if plan['planned_requests']>plan['max_requests']:
+            raise TenderError(f'{prefix.upper()}_RECOGNITION_PLAN_BUDGET',f"文件识别预计需要{plan['planned_requests']}次请求，超过本轮{plan['max_requests']}次上限；未发送模型请求。")
     all_items: list[dict[str, Any]] = []
     all_scoring: list[dict[str, Any]] = []
+    all_proposals: list[dict[str, Any]] = []
+    from .proposal_channels import CHANNELS, normalize_channels
     provider_error: Exception | None = None
     for chunk in chunks:
         chunk_dir = chunks_dir / chunk["chunk_id"]
         normalized_path = chunk_dir / "normalized.json"
         if resume and normalized_path.is_file():
             normalized = json.loads(normalized_path.read_text(encoding="utf-8-sig"))
+            if normalized.get("proposal_channels_version") != 1:
+                raw_path = chunk_dir / "raw.json"
+                if raw_path.is_file():
+                    raw_payload = json.loads(raw_path.read_text(encoding="utf-8-sig"))["payload"]
+                    normalized.update(normalize_channels(raw_payload, chunk), proposal_channels_version=1)
+                    write_json(normalized_path, normalized)
+                else:
+                    # Legacy caches cannot certify that absent channels were empty.
+                    all_proposals.append({"proposal_id": chunk["chunk_id"]+":legacy_channels", "channel": "LEGACY_CHANNELS_UNAVAILABLE",
+                        "chunk_id": chunk["chunk_id"], "proposal": "旧缓存缺少原始提议，须审阅", "sources": [],
+                        "validation_status": "UNVERIFIED_PROPOSAL", "scope": "EXTRACTION_CHUNK"})
             all_items.extend(normalized.get("proposed_items", []))
             all_scoring.extend(normalized.get("proposed_scoring_items", []))
+            for key in CHANNELS:all_proposals.extend(normalized.get(key, []))
             status["chunks_completed"] += 1
             continue
         chunk_dir.mkdir(parents=True, exist_ok=True)
@@ -229,6 +359,8 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
             "chunk_id": chunk["chunk_id"],
             "mock_response": _mock_payload(extraction, chunk), "agent_max_turns": 1,
             "reasoning_effort": "low",
+            "generation_mode": "tender_requirement_recognition",
+            "timeout_seconds": RECOGNITION_TIMEOUT_SECONDS,
         }
         started_at = now_iso()
         engine = engine_label(provider)
@@ -247,22 +379,79 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
                 status["elapsed_seconds"] = elapsed
                 status["updated_at"] = now_iso()
                 status["engine_label"] = engine
-                status["message"] = f"正在调用{engine}识别需求，已用时{elapsed // 60}分{elapsed % 60}秒。请继续等待。"
+                part = status.get('recognition_segments') or {}
+                detail = f"{part.get('parent_chunk_id')}，第{part.get('current')}/{part.get('total')}个子块，" if part else ''
+                status["message"] = f"正在调用{engine}识别需求，{detail}已用时{elapsed // 60}分{elapsed % 60}秒。请继续等待。"
                 write_json(status_path, status)
 
         heartbeat = threading.Thread(target=_heartbeat, daemon=True)
         heartbeat.start()
         try:
-            payload = provider.invoke_structured(request, chunk_dir / "provider_call")
+            attempts: list[dict[str, Any]] = []
+            payload = None
+            for attempt_no in range(1, RECOGNITION_MAX_ATTEMPTS + 1):
+                call_dir = chunk_dir / ("provider_call" if attempt_no == 1 else f"provider_call_retry_{attempt_no:02d}")
+                attempt_started = now_iso()
+                try:
+                    payload = _invoke_recognition(provider, request, call_dir, chunk=chunk, extraction=extraction,
+                        progress=lambda part: status.update(recognition_segments=part))
+                    attempts.append({
+                        "attempt": attempt_no,
+                        "status": "PASS",
+                        "started_at": attempt_started,
+                        "finished_at": now_iso(),
+                        "call_dir": call_dir.name,
+                    })
+                    write_json(chunk_dir / "recognition_retry_audit.json", {
+                        "chunk_id": chunk["chunk_id"],
+                        "max_attempts": RECOGNITION_MAX_ATTEMPTS,
+                        "timeout_seconds": RECOGNITION_TIMEOUT_SECONDS,
+                        "attempts": attempts,
+                    })
+                    break
+                except Exception as exc:
+                    retriable = _is_transient_provider_error(exc)
+                    attempts.append({
+                        "attempt": attempt_no,
+                        "status": "FAIL",
+                        "started_at": attempt_started,
+                        "finished_at": now_iso(),
+                        "call_dir": call_dir.name,
+                        "error_type": type(exc).__name__,
+                        "error_code": getattr(exc, "error_code", None),
+                        "error": str(exc)[:400],
+                        "retriable": retriable,
+                    })
+                    write_json(chunk_dir / "recognition_retry_audit.json", {
+                        "chunk_id": chunk["chunk_id"],
+                        "max_attempts": RECOGNITION_MAX_ATTEMPTS,
+                        "timeout_seconds": RECOGNITION_TIMEOUT_SECONDS,
+                        "attempts": attempts,
+                    })
+                    if not retriable or attempt_no >= RECOGNITION_MAX_ATTEMPTS:
+                        raise
+                    status["message"] = (
+                        f"{engine}本次识别遇到临时故障，系统正在自动重试"
+                        f"（{attempt_no + 1}/{RECOGNITION_MAX_ATTEMPTS}）。"
+                    )
+                    status["updated_at"] = now_iso()
+                    write_json(status_path, status)
+                    time.sleep(RECOGNITION_RETRY_DELAY_SECONDS)
+            if payload is None:
+                raise RuntimeError("AI需求识别未返回结果")
             provider_metadata = payload.pop("provider_metadata", {})
             write_json(chunk_dir / "raw.json", {"payload": payload, "provider_metadata": provider_metadata})
             items, scoring = _normalize_payload(payload, chunk)
             normalized = {"chunk_id": chunk["chunk_id"], "proposed_items": items, "proposed_scoring_items": scoring, "provider_metadata": provider_metadata}
+            channels = normalize_channels(payload, chunk)
+            normalized.update(channels, proposal_channels_version=1)
             write_json(normalized_path, normalized)
             write_json(chunk_dir / "status.json", {"chunk_id": chunk["chunk_id"], "status": "PASS", "finished_at": now_iso()})
             all_items.extend(items)
             all_scoring.extend(scoring)
+            for key in CHANNELS:all_proposals.extend(channels[key])
             status["chunks_completed"] += 1
+            status.pop('recognition_segments', None)
             status["failed_chunk"] = None
             status["message"] = ""
             status["updated_at"] = now_iso()
@@ -280,6 +469,7 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
             break
         finally:
             stop.set()
+            heartbeat.join()
     # Local high-recall candidates remain the deterministic safety net. Provider
     # proposals may add interpretation, but cannot make a source-backed MUST or
     # repeated occurrence disappear from the authoritative Pack.
@@ -289,15 +479,19 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
         status.update({"pack_status": "understanding_failed", "stage": "A4_PROVIDER_UNDERSTANDING_FAILED", "error": str(cause), "updated_at": now_iso()})
         write_json(status_path, status)
         raise TenderError("UNDERSTAND_PROVIDER_UNAVAILABLE", str(cause), {"failed_chunk": status.get("failed_chunk")}) from (provider_error if isinstance(provider_error, Exception) else None)
-    pack = build_requirement_pack(extraction, all_items, all_scoring)
+    pack = build_requirement_pack(extraction, all_items, all_scoring, provider_proposals=all_proposals)
     write_json(tender_dir / "requirement_pack.json", pack)
     status.update({"chunks_completed": status.get("chunks_completed") or 0, "pack_status": pack["status"], "stage": "A5_TODD_CONFIRMATION", "updated_at": now_iso()})
+    from .cursor_recognition_recovery import CHOICE_ERRORS, WAITING
+    waiting = getattr(provider_error, "error_code", None) in CHOICE_ERRORS
+
     if provider_error:
         cause = str(getattr(provider_error, "__cause__", None) or provider_error)
-        status["recognition_outcome"] = "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK"
+        status["recognition_outcome"] = WAITING if waiting else "AI_RECOGNITION_FAILED_WITH_LOCAL_FALLBACK"
         status["local_fallback_confirmation_required"] = True
         status["local_fallback_confirmed"] = False
-        status["warning"] = f"AI需求识别未完成，当前仅展示本地解析结果。{cause}"
+        status["warning"] = (f"AI需求识别已暂停，等待选择处理方式。{cause}" if waiting else
+                             f"AI需求识别未完成，当前仅展示本地解析结果。{cause}")
         status["message"] = status["warning"]
         status.pop("error", None)
     else:
@@ -311,7 +505,7 @@ def understand_run(run_dir: Path, extraction: dict[str, Any], provider: Any, res
         "recognition_outcome": status["recognition_outcome"],
         "provider_error_type": type(provider_error).__name__ if provider_error else None,
         "provider_error_code": getattr(provider_error, "error_code", None) if provider_error else None,
-        "local_fallback_used": bool(provider_error),
+        "local_fallback_used": bool(provider_error) and not waiting,
         "local_fallback_confirmation_required": status["local_fallback_confirmation_required"],
         "created_at": now_iso(),
     })

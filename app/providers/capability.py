@@ -2,6 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+# Output headroom is a provider-scheduling concern, not a business-layer
+# constant.  The factors leave room for JSON framing and provider variance.
+OUTPUT_SAFETY_FACTORS = {"fast": 0.72, "balanced": 0.78, "deep": 0.82}
+
+
+def safe_output_budget(max_output_tokens: int, speed_profile: str = "balanced") -> int:
+    """Return the maximum planned output below the provider hard limit."""
+    limit = max(1, int(max_output_tokens or 1))
+    factor = OUTPUT_SAFETY_FACTORS.get(normalize_speed_profile(speed_profile), 0.78)
+    return max(256, int(limit * factor))
+
 
 def normalize_speed_profile(value: Any) -> str:
     raw = str(value or "").strip().lower()
@@ -52,6 +63,8 @@ LATENCY_FAILURE_KINDS = {"LATENCY_FAILURE", "TIMEOUT", "SOFT_LATENCY_EXCEEDED"}
 
 # Provider-native sequences are independent of product speed profiles (fast/balanced/deep).
 NATIVE_REASONING_SEQUENCES = {
+    "zcode_cn": ["low", "high", "max"],
+    "qoder_account": ["account_default"],
     "grok_build": ["low", "medium", "high", "xhigh"],
     "kimi_moonshot": ["low", "high", "max"],
     "glm_zhipu": ["low", "high", "max"],
@@ -218,6 +231,11 @@ PROVIDER_LATENCY_BUDGETS: dict[str, dict[str, tuple[int, int]]] = {
     "kimi_moonshot": {"fast": (180, 420), "balanced": (300, 600), "deep": (420, 780)},
     "glm_zhipu": {"fast": (150, 360), "balanced": (240, 480), "deep": (360, 720)},
     "grok_build": {"fast": (240, 540), "balanced": (420, 900), "deep": (600, 1200)},
+    # 文件队列桥：一次调用 = 排队 + 执行者取单 + 生成 + 回队，四段都在预算里。
+    # MMF-007C Round 1 第一方实测 73 次准点调用 client_total p50 184 / p90 407 / p95 525 秒；
+    # 没有这一行时 qoder_internal 落到 120/300 兜底口径，82% 的调用被判成软超时，
+    # 并发治理每轮只降不升，真实并发被永久锁在 1（详见 R2_P1_1_throughput_closure.md）。
+    "qoder_internal": {"fast": (540, 900), "balanced": (720, 1200), "deep": (900, 1500)},
     "mock": {"fast": (8, 20), "balanced": (12, 30), "deep": (16, 40)},
 }
 MODEL_LATENCY_BUDGETS: dict[tuple[str, str], dict[str, tuple[int, int]]] = {
@@ -352,6 +370,24 @@ def latency_budget_seconds(
 
 
 CAPABILITY_PROFILES: dict[str, dict[str, Any]] = {
+    "zcode_cn": {
+        "thinking": None, "enable_thinking": None, "reasoning_effort": "low",
+        "supported_reasoning_levels": ["low", "high", "max"], "default_reasoning": "low",
+        "max_output_tokens": 16384, "context_window": 32000,
+        "supports_parallel": False, "recommended_parallelism": 1,
+        "supports_cancel": True, "timeout_behavior": "serialized_cli", "timeout": 240,
+        "structured_output": True, "continuation_support": True, "continuation": True, "retry": True,
+        "capability_assumption": "ZCode专用CLI单执行者；原生推理显式传递，目录与额度不由能力表推断。",
+    },
+    "qoder_account": {
+        "thinking": None, "enable_thinking": None, "reasoning_effort": None,
+        "supported_reasoning_levels": ["account_default"], "default_reasoning": "account_default",
+        "max_output_tokens": 8192, "context_window": 32000,
+        "supports_parallel": False, "recommended_parallelism": 1,
+        "supports_cancel": True, "timeout_behavior": "sdk_session", "timeout": 240,
+        "structured_output": True, "continuation_support": True, "continuation": True, "retry": True,
+        "capability_assumption": "账户模型能力待实测；32k上下文/8192输出为本实验保守调度上限，推理沿用账户模型设置。",
+    },
     "qwen_modelstudio": {
         "thinking": False,
         "enable_thinking": False,
@@ -429,6 +465,29 @@ CAPABILITY_PROFILES: dict[str, dict[str, Any]] = {
         "xhigh_allowed_stages": ["planning", "complex_repair", "commitment_repair", "repair", "quality_retry"],
         "capability_assumption": "xhigh is reserved for planning/complex/quality repair, not draft writing",
     },
+    "qoder_internal": {
+        "thinking": False,
+        "enable_thinking": False,
+        "reasoning_effort": "low",
+        "supported_reasoning_levels": ["low"],
+        "default_reasoning": "low",
+        "max_output_tokens": 8192,
+        "context_window": 128000,
+        "supports_parallel": True,
+        "recommended_parallelism": 3,
+        "supports_cancel": True,
+        "timeout_behavior": "queue_wait",
+        "timeout": 3600,
+        "structured_output": True,
+        "continuation_support": True,
+        "continuation": True,
+        "retry": True,
+        "capability_assumption": (
+            "队列桥没有官方 SLA：并行度 3 与上下文 128k 取自 MMF-007C Round 1 第一方记录"
+            "（66 次调用输入估算 p50 39,127 token 全部成功回队，旧 32k 假设被每一次调用超出）；"
+            "输出上限 8192 沿用已验证值（实测产出 p95 3,321 token，无截断）。"
+        ),
+    },
     "mock": {
         "thinking": False,
         "enable_thinking": False,
@@ -497,6 +556,15 @@ def _map_provider_reasoning(provider_name: str, product_level: str, stage: str, 
         mapped["ui_reasoning_label"] = {"low": "快速写作", "medium": "均衡写作", "high": "深度写作", "xhigh": "最高推理"}.get(effort, effort)
         mapped["ui_thinking_enabled"] = False
         return mapped
+    if provider_name == "zcode_cn":
+        effort = "max" if product_level == "xhigh" else "high" if product_level == "high" else "low"
+        mapped.update(enable_thinking=None, reasoning_effort=effort, effective_reasoning=effort,
+                      ui_reasoning_label="ZCode账户推理设置", ui_thinking_enabled=False)
+        return mapped
+    if provider_name == "qoder_account":
+        mapped.update(enable_thinking=None, reasoning_effort=None, effective_reasoning="account_default",
+                      ui_reasoning_label="沿用Qoder模型设置", ui_thinking_enabled=False)
+        return mapped
     effort = product_level if product_level in allowed else (base.get("default_reasoning") or "low")
     mapped["enable_thinking"] = False
     mapped["reasoning_effort"] = effort
@@ -516,7 +584,7 @@ def _apply_native_to_mapped(provider_name: str, native: str, mapped: dict[str, A
         updated["ui_thinking_enabled"] = bool(thinking)
         updated["ui_reasoning_label"] = "思维链已启用" if thinking else "当前模型按快速写作运行（未启用思维链）"
         return updated
-    if provider_name in {"kimi_moonshot", "glm_zhipu"}:
+    if provider_name in {"kimi_moonshot", "glm_zhipu", "zcode_cn"}:
         updated["enable_thinking"] = None
         updated["reasoning_effort"] = native
         updated["ui_reasoning_label"] = {"low": "快速写作", "high": "标准推理", "max": "深度推理"}.get(native, native)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from typing import Any
 import paths
 from user_errors import USER_MESSAGES
 
+AUTO_IMAGE_PROVIDER = "auto"
 
 DEFAULTS = {
     "schema_version": "mmf-desktop-user-settings-v0.1",
@@ -16,7 +18,7 @@ DEFAULTS = {
     "default_medium": "WORD",
     "enable_grok_bridge": False,
     "enable_image_provider": True,
-    "image_provider_name": "qwen_image",
+    "image_provider_name": AUTO_IMAGE_PROVIDER,
     "image_provider_status": "not_configured",
 }
 
@@ -47,11 +49,18 @@ def current_settings() -> dict[str, Any]:
         "app_version": paths.APP_VERSION,
         "app_name": paths.APP_NAME,
         "app_status": paths.APP_STATUS,
-        "image_provider_name": merged.get("image_provider_name") or "qwen_image",
+        "image_provider_name": merged.get("image_provider_name") or AUTO_IMAGE_PROVIDER,
         "image_provider_status": merged.get("image_provider_status") or "not_configured",
-        "image_provider_message": "可在AI引擎设置中配置千问万相或Grok Imagine。",
+        "image_provider_message": "使用 Qoder CN 写 PPT 时，自动模式会调用已连接的 Qoder 生成场景配图。也可以手动选择其他图片服务。",
     })
     return merged
+
+
+def resolve_image_provider(settings: dict[str, Any], writing_provider: str) -> str:
+    selection = settings.get("image_provider_name") or AUTO_IMAGE_PROVIDER
+    if selection == AUTO_IMAGE_PROVIDER:
+        return "qoder_account_image" if writing_provider == "qoder_account" else "qwen_image"
+    return str(selection)
 
 
 def _validate_dir(label: str, value: str) -> Path:
@@ -76,6 +85,7 @@ def _validate_dir(label: str, value: str) -> Path:
 def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     roots = paths.current()
     current = current_settings()
+    images_enabled = bool(payload.get("enable_image_provider", current.get("enable_image_provider", True)))
     updates = {
         "data_root": str(_validate_dir("工作目录", payload.get("data_root") or current["data_root"])),
         "output_root": str(_validate_dir("输出目录", payload.get("output_root") or current["output_root"])),
@@ -86,9 +96,9 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
         "default_provider": str(payload.get("default_provider") or current.get("default_provider") or "qwen_modelstudio"),
         "default_medium": str(payload.get("default_medium") or current.get("default_medium") or "WORD").upper(),
         "enable_grok_bridge": bool(payload.get("enable_grok_bridge", current.get("enable_grok_bridge", False))),
-        "enable_image_provider": bool(payload.get("enable_image_provider", current.get("enable_image_provider", True))),
-        "image_provider_name": str(payload.get("image_provider_name") or current.get("image_provider_name") or "qwen_image"),
-        "image_provider_status": "enabled" if bool(payload.get("enable_image_provider", True)) else "disabled",
+        "enable_image_provider": images_enabled,
+        "image_provider_name": str(payload.get("image_provider_name") or current.get("image_provider_name") or AUTO_IMAGE_PROVIDER),
+        "image_provider_status": "enabled" if images_enabled else "disabled",
         "first_run_completed": True,
         "updated_at": now_iso(),
         "schema_version": DEFAULTS["schema_version"],
@@ -96,11 +106,13 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     }
     if updates["default_medium"] not in {"WORD", "PPT"}:
         raise ValueError("默认输出只能是WORD或PPT")
-    target = roots.secure_config_dir / "user_settings.json"
+    configured_target = os.environ.get("MMF_USER_SETTINGS")
+    target = Path(configured_target).expanduser().resolve() if configured_target else roots.secure_config_dir / "user_settings.json"
     portable = roots.config_root / "user_settings.json"
     _write_json(target, updates)
     try:
-        _write_json(portable, {k: v for k, v in updates.items() if "key" not in k.lower()})
+        if portable != target:
+            _write_json(portable, {k: v for k, v in updates.items() if "key" not in k.lower()})
     except OSError:
         pass
     paths.reload(roots.package_root)
@@ -108,9 +120,10 @@ def save_settings(payload: dict[str, Any]) -> dict[str, Any]:
     try:
         from app_core import provider_manager
         manager = provider_manager()
+        static_image = resolve_image_provider(updates, "")
         for item in manager.config.get("available_providers", []):
             if item.get("provider_type") == "image_generation":
-                item["enabled"] = bool(updates["enable_image_provider"]) and item.get("provider_name") == updates["image_provider_name"]
+                item["enabled"] = images_enabled and item.get("provider_name") == static_image
         manager._write_config(manager.config)
         manager.reload()
     except Exception:
@@ -129,6 +142,6 @@ def setup_payload() -> dict[str, Any]:
             {"id": "default_medium", "label": "默认输出", "value": settings["default_medium"]},
             {"id": "enable_grok_bridge", "label": "启用本机Grok Bridge（可选）", "value": settings["enable_grok_bridge"]},
             {"id": "enable_image_provider", "label": "启用AI图片服务", "value": settings.get("enable_image_provider", True)},
-            {"id": "image_provider_name", "label": "图片引擎", "value": settings.get("image_provider_name") or "qwen_image"},
+            {"id": "image_provider_name", "label": "图片引擎", "value": settings["image_provider_name"]},
         ],
     }

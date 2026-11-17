@@ -58,6 +58,32 @@ class SchedulerAdversarialTest(unittest.TestCase):
         self.assertIn("B", out["blocked_batches"] or out["failed_batches"] or [])
         self.assertNotIn("B", out["completed_batches"])
 
+    def test_partial_batch_failure_does_not_block_satisfied_section_dependency(self):
+        invoked = []
+        completed_sections = set()
+
+        def work(batch):
+            invoked.append(batch["batch_id"])
+            if batch["batch_id"] == "A":
+                completed_sections.add("S05-02")
+                return {"status": "FAILED_BATCH", "failed": ["S05-01"], "accepted": 1}
+            completed_sections.add("S05-03")
+            return {"status": "SUCCESS"}
+
+        scheduler = ConcurrentBatchScheduler(provider_name="mock", max_parallelism=1)
+        out = scheduler.run([
+            {"batch_id": "A", "section_ids": ["S05-01", "S05-02"], "dependency_ids": []},
+            {
+                "batch_id": "B",
+                "section_ids": ["S05-03"],
+                "dependency_ids": ["A"],
+                "dependency_section_ids": ["S05-02"],
+            },
+        ], work, is_section_complete=lambda sid: sid in completed_sections)
+        self.assertEqual(invoked, ["A", "B"])
+        self.assertIn("B", out["completed_batches"])
+        self.assertIn("B", out["dependency_recovered_batches"])
+
     def test_unknown_dependency_is_blocked_not_force_run(self):
         invoked = []
 
@@ -105,6 +131,7 @@ class BatchPlannerDagTest(unittest.TestCase):
         s01 = next(row for row in plan["batches"] if "S01-01" in row["section_ids"])
         s02 = next(row for row in plan["batches"] if "S02-01" in row["section_ids"])
         self.assertIn(s02["batch_id"], s01["dependency_ids"])
+        self.assertIn("S02-01", s01["dependency_section_ids"])
         self.assertTrue(s01["latency_budget"]["soft"] and s01["latency_budget"]["hard"])
 
     def test_hard_dependent_sections_are_not_merged(self):

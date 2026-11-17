@@ -19,6 +19,7 @@ from .models import (
     append_jsonl,
     ensure_within,
     now_iso,
+    relative_label,
     safe_filename,
     sha256_bytes,
     validate_extraction,
@@ -66,7 +67,7 @@ def save_uploads(app_root: Path, run_dir: Path, files: Iterable[tuple[str, bytes
         record = {
             "file_id": f"FILE-{index:03d}",
             "original_filename": name,
-            "stored_relative_path": target.relative_to(app_root).as_posix(),
+            "stored_relative_path": relative_label(target, app_root),
             "media_type": media_type,
             "sha256": sha256_bytes(data),
             "file_size": len(data),
@@ -229,8 +230,13 @@ def extract_run(app_root: Path, run_dir: Path) -> dict[str, Any]:
         "warnings": [], "processing_mode": "NORMAL", "created_at": now_iso(),
     }
     max_pages = 0
+    originals = run_dir / "tender" / "originals"
     for file_meta in upload_data.get("files", []):
-        path = ensure_within(app_root / file_meta["stored_relative_path"], app_root)
+        # 上传落点由 save_uploads 固定在 run_dir/tender/originals 下，读回来就按这个构造走；
+        # stored_relative_path 只是审计标签（数据根在包外时它是相对哪个根写的并不确定），
+        # 拿它再拼一次 app_root 会把合法上传读成"文件不存在"。
+        stored_name = Path(str(file_meta["stored_relative_path"])).name
+        path = ensure_within(originals / stored_name, app_root)
         if not path.is_file():
             raise TenderError("EXTRACT_IO", f"上传文件不存在：{file_meta['original_filename']}")
         try:

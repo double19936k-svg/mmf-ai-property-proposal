@@ -1,0 +1,7 @@
+# Run J backlog outside implementation ownership
+
+1. S04-02's generated SOP says project负责人复核关闭; the later closure table says professional负责人核验签署 and project负责人月度抽审. The diagram shows the shared record/verification prerequisites and does not adjudicate ownership. Editorial/business authority must settle this source difference independently. Original fields remain intact.
+2. Frozen C4 production footer excludes Closing, while physical slide count includes it. Keep the independent C4 contract unchanged. Any future footer correction belongs in a separately authorized integration change.
+3. The source snapshot includes existing proposed-method details that may require independent business/semantic review. Evidence binding does not approve those details. Run J never repairs canonical claims, scoring, provenance or editorial source content.
+4. Calendar-scaled Gantt, dense multi-page graph continuation and automatic generation wiring remain future visual work. Current renderer fails unsupported/dense inputs explicitly; no date guessing, content loss or scheduler change.
+5. S11-01 narrative describes five milestone classes (including regular performance), while its structured schedule supplies four rows. Run J renders all four actual rows without inserting a fifth inferred business node. Canonical/editorial owners must settle the source discrepancy independently; both source representations remain available for review.

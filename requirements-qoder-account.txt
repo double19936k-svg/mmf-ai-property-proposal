@@ -1,0 +1,2 @@
+# Optional, isolated SDK environment only; existing app requirements stay unchanged.
+qoder-agent-sdk==1.0.17

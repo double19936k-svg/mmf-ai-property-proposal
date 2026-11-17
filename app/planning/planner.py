@@ -7,9 +7,85 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .content_engineering import (
+    build_bidder_evidence_ledger,
+    build_commercial_compliance_matrix,
+    build_requirement_classification,
+    build_technical_scope_gate,
+    classify_technical_scope,
+    is_excluded_technical_scope,
+    technical_scope_disposition,
+)
+from .unified_budget import document_budget_for_pages
+from .scope_gated_requirements import (
+    GATE_AUTHORITY, REQUIREMENT_DENOMINATOR, scope_gated_denominator,
+)
+
 
 class PlanningError(RuntimeError):
     pass
+
+
+def _scale_profile(*, scale_code: str, label: str, description: str,
+                   target_pages_min: int, target_pages_max: int, planning_pages: int) -> dict[str, Any]:
+    """产品目标是**技术有效页**，所以字额度从页带反推，不再单独手写一组字数。
+
+    Round 3 的账本字额度（240k/260k/280k）是按"1 页≈900 字"的渲染口径写的，
+    却被生成链当成账本字（CU 正文 + 结构 payload）消费 —— 两套尺子差 1.18 倍，
+    于是即便结构成本被正确扣掉，计划也会落到 ~220 页而不是 285 页（§71 的
+    Under-Length 陷阱）。这里把换算固定在 `document_budget_for_pages` 一处。
+    """
+    budget = document_budget_for_pages(target_pages_min, target_pages_max, planning_pages=planning_pages)
+    return {
+        "scale_code": scale_code, "label": label, "description": description,
+        "target_pages_min": target_pages_min, "target_pages_max": target_pages_max,
+        "planning_pages": planning_pages,
+        "target_effective_chars_min": budget["target_chars_min"],
+        "target_effective_chars_target": budget["target_chars_target"],
+        "target_effective_chars_max": budget["target_chars_max"],
+        "char_budget_basis": budget["basis"],
+        "ledger_chars_per_technical_page": budget["chars_per_technical_page"],
+    }
+
+
+DOCUMENT_SCALE_PROFILES: dict[str, dict[str, Any]] = {
+    "regular_solution": _scale_profile(scale_code="STANDARD", label="常规方案", description="70页级常规服务方案与内部评审稿", target_pages_min=50, target_pages_max=70, planning_pages=60),
+    "detailed_technical_solution": _scale_profile(scale_code="DETAILED", label="详细技术方案", description="150页级完整技术方案", target_pages_min=120, target_pages_max=150, planning_pages=135),
+    "large_technical_tender": _scale_profile(scale_code="TECHNICAL_BID", label="大型技术标", description="250～320页级大型技术标", target_pages_min=250, target_pages_max=320, planning_pages=285),
+    "bounded_technical_tender": {
+        **_scale_profile(scale_code="BOUNDED_TECHNICAL_BID", label="200至300页技术方案",
+                         description="有效技术正文不少于200页 整册不超过300页 以内容深度确定篇幅",
+                         target_pages_min=200, target_pages_max=290, planning_pages=240),
+        "page_constraints": {"technical_pages_min": 200, "physical_pages_max": 300,
+                             "planned_front_matter_reserve": 10, "measurement_required": True},
+    },
+}
+# PPT 正文页数是独立档位，不从 Word 页数折算。三档与 Word 方案一一对应。
+for _scale, (_ppt_min, _ppt_max, _ppt_plan) in {
+    "regular_solution": (15, 20, 18),
+    "detailed_technical_solution": (30, 40, 35),
+    "large_technical_tender": (50, 70, 60),
+    "bounded_technical_tender": (50, 70, 60),
+}.items():
+    DOCUMENT_SCALE_PROFILES[_scale]["ppt_slides_min"] = _ppt_min
+    DOCUMENT_SCALE_PROFILES[_scale]["ppt_slides_max"] = _ppt_max
+    DOCUMENT_SCALE_PROFILES[_scale]["ppt_planning_slides"] = _ppt_plan
+DOCUMENT_SCALE_ALIASES = {
+    "standard_longform": "regular_solution", "STANDARD": "regular_solution",
+    "DETAILED": "detailed_technical_solution", "TECHNICAL_BID": "large_technical_tender",
+}
+
+
+def normalize_document_scale(value: Any) -> str:
+    raw = str(value or "regular_solution").strip()
+    raw = DOCUMENT_SCALE_ALIASES.get(raw, raw)
+    if raw not in DOCUMENT_SCALE_PROFILES:
+        raise PlanningError("文档规模无效。")
+    return raw
+
+
+def document_scale_catalog() -> list[dict[str, Any]]:
+    return [{"id": key, **deepcopy(value)} for key, value in DOCUMENT_SCALE_PROFILES.items()]
 
 
 def now_iso() -> str:
@@ -23,14 +99,16 @@ def write_json(path: Path, value: Any) -> None:
 
 def build_document_target(
     medium: str = "word_and_ppt",
-    target_scale: str = "standard_longform",
-    word_pages: tuple[int, int] = (50, 80),
-    ppt_slides: tuple[int, int] = (35, 50),
+    target_scale: str = "regular_solution",
+    word_pages: tuple[int, int] | None = None,
+    ppt_slides: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     if medium not in {"word", "ppt", "word_and_ppt"}:
         raise PlanningError("Document Target medium无效。")
-    if target_scale not in {"standard_longform", "custom"}:
-        raise PlanningError("Document Target target_scale无效。")
+    target_scale = normalize_document_scale(target_scale)
+    profile = DOCUMENT_SCALE_PROFILES[target_scale]
+    word_pages = word_pages or (profile["target_pages_min"], profile["target_pages_max"])
+    ppt_slides = ppt_slides or (profile["ppt_slides_min"], profile["ppt_slides_max"])
     if medium in {"word", "word_and_ppt"} and not (1 <= word_pages[0] <= word_pages[1]):
         raise PlanningError("Word目标页数无效。")
     if medium in {"ppt", "word_and_ppt"} and not (1 <= ppt_slides[0] <= ppt_slides[1]):
@@ -40,9 +118,42 @@ def build_document_target(
         "medium": medium,
         "document_types": ["service_solution", "presentation"] if medium == "word_and_ppt" else (["service_solution"] if medium == "word" else ["presentation"]),
         "target_scale": target_scale,
-        "word": {"target_pages_min": word_pages[0], "target_pages_max": word_pages[1]} if medium != "ppt" else None,
+        "document_scale": profile["scale_code"],
+        "target_scale_label": profile["label"],
+        "word": {
+            "document_scale": target_scale,
+            "document_scale_label": profile["label"],
+            "target_pages_min": word_pages[0],
+            "target_pages_max": word_pages[1],
+            "planning_pages": profile["planning_pages"],
+            "target_effective_chars_min": profile["target_effective_chars_min"],
+            "target_effective_chars_target": profile["target_effective_chars_target"],
+            "target_effective_chars_max": profile["target_effective_chars_max"],
+            **({"page_constraints": deepcopy(profile["page_constraints"])} if "page_constraints" in profile else {}),
+        } if medium != "ppt" else None,
         "ppt": {"target_slides_min": ppt_slides[0], "target_slides_max": ppt_slides[1]} if medium != "word" else None,
     }
+
+
+def apply_document_scale(outline: list[dict[str, Any]], document_scale: str) -> list[dict[str, Any]]:
+    """按统一产品档位缩放章节预算，并保持章节/Section业务结构不变。"""
+    scale = normalize_document_scale(document_scale)
+    target_pages = int(DOCUMENT_SCALE_PROFILES[scale]["planning_pages"])
+    rows = deepcopy(outline)
+    if not rows:
+        return rows
+    base_total = max(1, sum(max(1, int(row.get("target_pages") or 1)) for row in rows))
+    minimum = 3
+    remaining = max(0, target_pages - minimum * len(rows))
+    raw = [remaining * max(1, int(row.get("target_pages") or 1)) / base_total for row in rows]
+    allocated = [minimum + int(value) for value in raw]
+    remainder = target_pages - sum(allocated)
+    order = sorted(range(len(rows)), key=lambda index: (raw[index] - int(raw[index]), -index), reverse=True)
+    for index in order[:remainder]:
+        allocated[index] += 1
+    for row, pages in zip(rows, allocated):
+        row["target_pages"] = pages
+    return rows
 
 
 def _active_requirements(pack: dict[str, Any]) -> list[dict[str, Any]]:
@@ -88,14 +199,27 @@ def _is_non_content_marker(requirement: dict[str, Any]) -> bool:
 
 def _planning_requirements(pack: dict[str, Any]) -> list[dict[str, Any]]:
     excluded_classes = {"BID_FORM_TEMPLATE", "LEGAL_FORM_TEMPLATE", "AUTHORIZATION_TEMPLATE", "ADMINISTRATIVE_TEMPLATE"}
-    return [r for r in _active_requirements(pack) if not _is_non_content_marker(r) and r.get("tender_content_class") not in excluded_classes and not r.get("excluded_from_solution_body")]
+    # P0-0 §4：范围类别为 EXCLUDED 的条款只登记，不建立 Section、Content Unit、
+    # Page Budget、Word Table 或空白附件页，因此不能进入规划需求集。
+    return [
+        r for r in _active_requirements(pack)
+        if not _is_non_content_marker(r)
+        and r.get("tender_content_class") not in excluded_classes
+        and not r.get("excluded_from_solution_body")
+        and not is_excluded_technical_scope(classify_technical_scope(r))
+        and not (r.get("held_project_fact_slots") and r.get("confirmation_status") not in {"CONFIRMED", "EDITED"})
+    ]
+
+
+def _scope_excluded_requirements(pack: dict[str, Any]) -> list[dict[str, Any]]:
+    return [r for r in _active_requirements(pack) if is_excluded_technical_scope(classify_technical_scope(r))]
 
 
 def _word_outline_catalog() -> list[dict[str, Any]]:
     rows = [
         ("CH01", "项目理解与需求边界", 5, "high", [
             ("S01-01", "项目概况、服务范围与排除项"),
-            ("S01-02", "产业园特征与物业管理重难点"),
+            ("S01-02", "项目特征与物业管理重难点"),
         ]),
         ("CH02", "服务构想与总体运营机制", 5, "high", [
             ("S02-01", "服务定位、目标与响应策略"),
@@ -110,7 +234,7 @@ def _word_outline_catalog() -> list[dict[str, Any]]:
             ("S04-01", "客户服务范围、渠道与服务界面"),
             ("S04-02", "投诉响应、过程跟踪与闭环反馈"),
         ]),
-        ("CH05", "安全秩序与园区通行管理", 7, "high", [
+        ("CH05", "安全秩序与项目通行管理", 7, "high", [
             ("S05-01", "秩序维护模式与岗位协同"),
             ("S05-02", "巡逻机制、重点区域与异常处置"),
             ("S05-03", "人车通行与突发事件联动"),
@@ -284,6 +408,8 @@ def build_adaptive_outline(pack: dict[str, Any], brief: dict[str, Any] | None = 
         ratio = len(sections) / max(1, len(chapter["sections"]))
         pages = max(3, round(int(chapter["target_pages"]) * max(0.55, ratio)))
         outline.append({**chapter, "sections": sections, "target_pages": pages})
+    from governance.proposal_fidelity import append_uncovered_topics
+    outline = append_uncovered_topics(outline, pack)
     decision = {
         "schema_version": "adaptive-section-decision-v0.1",
         "selected_section_count": sum(len(ch["sections"]) for ch in outline),
@@ -351,6 +477,7 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
     valid_sections = set(_section_lookup(outline))
     matrix: list[dict[str, Any]] = []
     for req in _planning_requirements(pack):
+        scope_class = classify_technical_scope(req)
         primary = resolve_available_section(_route_requirement(req), valid_sections)
         if primary not in valid_sections:
             matrix.append({
@@ -358,6 +485,7 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
                 "scoring_item_id": req.get("scoring_item_id"), "primary_section_id": None,
                 "secondary_section_ids": [], "coverage_mode": "CONDITIONAL",
                 "planned_response_type": "clarification", "coverage_status": "UNMAPPED",
+                "scope_class": scope_class, "scope_disposition": technical_scope_disposition(scope_class),
                 "reason": "未找到可用Section。",
             })
             continue
@@ -379,14 +507,25 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
             "coverage_mode": "FULL" if req.get("mandatory_level") == "MUST" or req.get("scoring_item_id") else "REFERENCE",
             "planned_response_type": "evidence_and_method" if req.get("mandatory_level") == "MUST" else "context_or_boundary",
             "coverage_status": "MAPPED",
+            "scope_class": scope_class,
+            "scope_disposition": technical_scope_disposition(scope_class),
             "reason": "按已确认需求的业务领域和内容含义映射；未让评分项直接控制PPT目录。",
         })
     must_rows = [r for r in matrix if r["mandatory_level"] == "MUST"]
-    score_ids = {
-        str(s.get("scoring_item_id")) for s in pack.get("scoring_items", [])
+    responding_scoring = [
+        s for s in pack.get("scoring_items", [])
         if s.get("must_respond") and not str(s.get("label", "")).strip().startswith("##")
-    }
+    ]
+    # P0-0 §6/§7：评分覆盖分母只统计技术标范围内评分项；商务、报价、资格、资信、
+    # 法务程序类评分项一律记为 EXCLUDED_FROM_TECHNICAL_BID。
+    technical_scoring = [s for s in responding_scoring if not is_excluded_technical_scope(classify_technical_scope(s))]
+    score_ids = {str(s.get("scoring_item_id")) for s in technical_scoring}
+    excluded_scoring_ids = sorted({
+        str(s.get("scoring_item_id")) for s in responding_scoring
+        if is_excluded_technical_scope(classify_technical_scope(s))
+    })
     mapped_scores = {str(r.get("scoring_item_id")) for r in matrix if r.get("scoring_item_id") and r["coverage_status"] == "MAPPED"}
+    scope_excluded_rows = _scope_excluded_requirements(pack)
     excluded = [
         {"requirement_id": r.get("requirement_id"), "reason": "Todd/006A已确认不适用", "text": r.get("normalized_requirement", "")}
         for r in pack.get("requirements", [])
@@ -396,9 +535,30 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
         {"requirement_id": r.get("requirement_id"), "reason": "结构标题或模拟解析标记，仅保留为内部追溯/澄清信息，不进入正文施工单", "text": r.get("normalized_requirement", "")}
         for r in _active_requirements(pack) if _is_non_content_marker(r)
     ]
+    excluded += [
+        {
+            "requirement_id": r.get("requirement_id"),
+            "reason": f"TECHNICAL_ONLY_SCOPE_GATE：{classify_technical_scope(r)} 仅登记为排除项，不建立Section、Content Unit、Page Budget、Word Table或空白附件页",
+            "text": r.get("normalized_requirement", ""),
+            "scoring_item_id": r.get("scoring_item_id"),
+            "scope_class": classify_technical_scope(r),
+            "disposition": "EXCLUDED_FROM_TECHNICAL_BID",
+            "recorded_only": True,
+        }
+        for r in scope_excluded_rows
+    ]
+    scoring_weights: dict[str, float] = {}
+    for item in pack.get("scoring_items", []):
+        score_value = item.get("weight_numeric")
+        if score_value is None:
+            match = re.search(r"(\d+(?:\.\d+)?)\s*分", str(item.get("label", "")))
+            score_value = float(match.group(1)) if match else 0.0
+        if score_value:
+            scoring_weights[str(item.get("scoring_item_id"))] = float(score_value)
     return {
         "schema_version": "requirement-section-matrix-v0.1",
         "pack_id": pack.get("pack_id"),
+        "scoring_weights": scoring_weights,
         "matrix": matrix,
         "excluded_requirements": excluded,
         "coverage_summary": {
@@ -408,18 +568,70 @@ def build_requirement_matrix(pack: dict[str, Any], outline: list[dict[str, Any]]
             "scoring_mapped": len(score_ids & mapped_scores),
             "unmapped": sum(r["coverage_status"] == "UNMAPPED" for r in matrix),
             "conflict_blocked": sum(r["coverage_status"] == "CONFLICT_BLOCKED" for r in matrix),
+            "excluded_scoring_total": len(excluded_scoring_ids),
+            "excluded_scoring_item_ids": excluded_scoring_ids,
+            "scope_excluded_requirement_total": len(scope_excluded_rows),
+            # §38：这里**不再**自算一个 technical_scoring_total。规划期这里只是"计划值"，
+            # 真值在 build_planning_bundle 里由 TECHNICAL_ONLY_SCOPE_GATE 回填（见
+            # reconcile_requirement_denominator），避免一处规则两个数字。
+            "planned_scoring_total": len(score_ids),
+            "coverage_denominator": REQUIREMENT_DENOMINATOR,
         },
     }
 
 
-def build_content_budget(outline: list[dict[str, Any]], matrix: dict[str, Any], speed_profile: str | None = None) -> dict[str, Any]:
+def reconcile_requirement_denominator(matrix: dict[str, Any], technical_scope_gate: dict[str, Any]) -> dict[str, Any]:
+    """§38/§39：把最终 Technical Scope Gate 的结论回写进需求矩阵，分母只留一处真值。"""
+    authority = scope_gated_denominator(matrix, scope_gate=technical_scope_gate)
+    summary = matrix.setdefault("coverage_summary", {})
+    # 分母取门里的评分项清单本身：声明计数缺失时不能悄悄当成 0（0 会把覆盖门永久放行）。
+    gate_scoring_ids = [str(x) for x in (technical_scope_gate.get("technical_scoring_item_ids") or [])]
+    declared = technical_scope_gate.get("technical_scoring_denominator")
+    summary["technical_scoring_total"] = len(gate_scoring_ids)
+    if declared is not None and int(declared or 0) != len(gate_scoring_ids):
+        summary["scoring_denominator_conflict"] = {
+            "declared_on_gate": int(declared or 0), "from_gate_item_ids": len(gate_scoring_ids)}
+    summary["scoring_denominator_authority"] = GATE_AUTHORITY
+    summary["must_total_after_scope_gate"] = sum(
+        1 for row in authority["rows"] if row.get("mandatory_level") == "MUST")
+    summary["must_mapped_after_scope_gate"] = sum(
+        1 for row in authority["must_or_scoring_rows"] if row.get("mandatory_level") == "MUST")
+    summary["qa_denominator"] = authority["denominator"]
+    # 矩阵里只允许存在一条分母口径：回填时把 coverage_denominator 也对齐，
+    # 避免"规划期写的一个字符串、门后又算一个"两套口径并存。
+    summary["coverage_denominator"] = authority["denominator"]
+    summary["qa_denominator_authority"] = authority["denominator_authority"]
+    summary["qa_denominator_row_total"] = authority["must_or_scoring_total"]
+    summary["qa_denominator_removed_total"] = authority["removed_total"]
+    summary["qa_denominator_removal_counts"] = authority["removal_counts"]
+    summary["qa_denominator_conservation_holds"] = authority["conservation_holds"]
+    for row in authority["excluded"]:
+        req_id = row.get("requirement_id")
+        if not req_id:
+            continue
+        for target in matrix.get("matrix") or []:
+            if target.get("requirement_id") == req_id:
+                target["in_qa_denominator"] = False
+                target["qa_denominator_removal_reasons"] = row["removal_reasons"]
+    matrix["requirement_denominator_authority"] = {
+        key: value for key, value in authority.items() if key not in {"rows", "must_or_scoring_rows"}
+    }
+    return matrix
+
+
+def build_content_budget(
+    outline: list[dict[str, Any]],
+    matrix: dict[str, Any],
+    speed_profile: str | None = None,
+    document_scale: str = "regular_solution",
+) -> dict[str, Any]:
     # FAST_MODE must not shrink full-proposal content budgets. speed_profile is accepted
     # only so callers cannot accidentally fork a shorter document mode.
     rows: list[dict[str, Any]] = []
     matrix_rows = matrix["matrix"]
     for chapter in outline:
         chapter_sections = {s["section_id"] for s in chapter["sections"]}
-        related = [r for r in matrix_rows if r.get("primary_section_id") in chapter_sections]
+        related = [r for r in matrix_rows if r.get("primary_section_id") in chapter_sections and r.get("requirement_class") not in {"COMMERCIAL", "QUALIFICATION", "LEGAL"} and r.get("scope_disposition") != "EXCLUDED"]
         must_count = sum(r.get("mandatory_level") == "MUST" for r in related)
         scoring_count = sum(bool(r.get("scoring_item_id")) for r in related)
         pages = int(chapter["target_pages"])
@@ -430,6 +642,11 @@ def build_content_budget(outline: list[dict[str, Any]], matrix: dict[str, Any], 
             density *= 1.12
         if shallow:
             density *= 0.88
+        # SCORING_WEIGHT_TO_DEPTH_POLICY：高分技术评分项所在章节获得更高内容预算
+        chapter_scoring_ids = {r.get("scoring_item_id") for r in related if r.get("scoring_item_id")}
+        chapter_score_weight = sum(float((matrix.get("scoring_weights") or {}).get(str(sid), 0.0)) for sid in chapter_scoring_ids)
+        if chapter_score_weight:
+            density *= 1.0 + min(0.25, 0.04 * (chapter_score_weight ** 0.5))
         words_min, words_max = int(pages * 480 * density), int(pages * 650 * density)
         reason_parts = [f"章节目标约{pages}页", f"MUST {must_count}条", f"评分关联 {scoring_count}条", f"复杂度系数{density:.2f}"]
         rows.append({
@@ -440,17 +657,47 @@ def build_content_budget(outline: list[dict[str, Any]], matrix: dict[str, Any], 
             "mandatory_requirement_count": must_count, "scoring_item_count": scoring_count,
             "reason": "；".join(reason_parts) + "；综合项目优先级、风险复杂度与知识可用性采用可解释启发式分配。",
         })
+    scale = normalize_document_scale(document_scale)
+    profile = DOCUMENT_SCALE_PROFILES[scale]
+    # 页数是产品目标，内容预算必须反向约束生成深度。900个有效中文内容单位/页
+    # 取自现有长文交付样本的保守规划口径，不用于通过排版注水凑页。
+    desired_words = {
+        "target_words_min": int(profile["target_effective_chars_min"]),
+        "target_words_target": int(profile["target_effective_chars_target"]),
+        "target_words_max": int(profile["target_effective_chars_max"]),
+    }
+    for row in rows:
+        row["target_words_target"] = int((row["target_words_min"] + row["target_words_max"]) / 2)
+    for field, desired_total in desired_words.items():
+        current_total = max(1, sum(int(row[field]) for row in rows))
+        raw_values = [int(row[field]) * desired_total / current_total for row in rows]
+        allocated = [int(value) for value in raw_values]
+        remainder = desired_total - sum(allocated)
+        order = sorted(range(len(rows)), key=lambda index: (raw_values[index] - allocated[index], -index), reverse=True)
+        for index in order[:remainder]:
+            allocated[index] += 1
+        for row, value in zip(rows, allocated):
+            row[field] = value
     return {
-        "schema_version": "word-content-budget-v0.1",
+        "schema_version": "word-content-budget-v0.2-technical-bid",
+        "document_scale": scale,
+        "document_scale_code": profile["scale_code"],
+        "document_scale_label": profile["label"],
         "chapters": rows,
         "totals": {
             "target_words_min": sum(r["target_words_min"] for r in rows),
+            "target_words_target": sum(r["target_words_target"] for r in rows),
             "target_words_max": sum(r["target_words_max"] for r in rows),
-            "target_pages_min": sum(r["target_pages_min"] for r in rows),
-            "target_pages_max": sum(r["target_pages_max"] for r in rows),
+            "target_pages_min": profile["target_pages_min"],
+            "target_pages_max": profile["target_pages_max"],
             "planning_pages": sum(c["target_pages"] for c in outline),
+            "target_effective_chars_min": sum(r["target_words_min"] for r in rows),
+            "target_effective_chars_target": sum(r["target_words_target"] for r in rows),
+            "target_effective_chars_max": sum(r["target_words_max"] for r in rows),
         },
-        "page_estimation_note": "页数仅用于规划估计，006C以文字预算为主要控制指标；不得为凑页数注水。",
+        "hierarchy_levels": ["Document", "Volume", "Chapter", "Section", "Content Unit"],
+        "quality_gate": "CONTENT_BUDGET_QUALITY_GATE",
+        "page_estimation_note": "页数仅用于规划估计；有效内容预算同时计入原生表格、SOP、清单和表单的信息量，不得为凑页数注水。",
     }
 
 
@@ -472,7 +719,7 @@ TOPIC_OWNER = {
 
 SECTION_HARDENING: dict[str, dict[str, Any]] = {
     "S01-01": {"must_cover": ["项目基本事实与服务对象", "服务范围、排除范围及责任接口", "项目事实、条件性方法与待澄清事项的边界"], "outputs": ["项目事实清单", "服务边界清单", "待澄清事项"]},
-    "S01-02": {"must_cover": ["产业园生产经营连续性对物业服务的影响", "园区人车物流、设施运行和客户协同重难点", "重难点对应的管理原则与验证方式"], "outputs": ["项目重难点清单", "重难点响应关系"]},
+    "S01-02": {"must_cover": ["项目主要业态及业务连续性对物业服务的影响", "项目人车流线、设施运行和客户协同重难点", "重难点对应的管理原则与验证方式"], "outputs": ["项目重难点清单", "重难点响应关系"]},
     "S02-01": {"must_cover": ["面向本项目的服务定位与目标", "从客户要求到服务动作的响应策略", "评分要求的逐项响应组织方式但不将评分数字写成服务承诺"], "outputs": ["服务目标", "响应策略", "编制响应约束"]},
     "S02-02": {"must_cover": ["项目统筹、专业执行与客户协同的运营机制", "事项从发起到关闭的协同界面", "阶段成果、服务记录和管理报告的形成方式"], "outputs": ["运营机制图", "协同界面", "成果体系"]},
     "S03-01": {"must_cover": ["项目组织层级及汇报关系", "项目负责人和专业负责人的职责边界", "跨专业事项的牵头、协同与升级机制"], "outputs": ["组织架构", "职责分工", "协同升级规则"]},
@@ -537,11 +784,20 @@ def build_section_contracts(
         secondary_related = [r for r in matrix["matrix"] if sid in r.get("secondary_section_ids", [])]
         related = primary_related + secondary_related
         chapter_row = chapter_budget[info["chapter_id"]]
-        section_count = len(next(c for c in outline if c["chapter_id"] == info["chapter_id"])["sections"])
-        target_min = chapter_row["target_words_min"] // section_count
-        target_max = chapter_row["target_words_max"] // section_count
+        chapter_sections = next(c for c in outline if c["chapter_id"] == info["chapter_id"])["sections"]
+        section_count = len(chapter_sections)
+        section_index = next(index for index, row in enumerate(chapter_sections) if row["section_id"] == sid)
+        def _share(field: str) -> int:
+            total = int(chapter_row[field])
+            return total // section_count + (1 if section_index < total % section_count else 0)
+        target_min = _share("target_words_min")
+        target_target = _share("target_words_target")
+        target_max = _share("target_words_max")
         topic = next((name for name, owner in TOPIC_OWNER.items() if owner == sid), None)
-        hardening = SECTION_HARDENING[sid]
+        hardening = SECTION_HARDENING.get(sid) or {
+            "must_cover": [info["section_title"], "本节对应评分事项的实施安排、责任岗位与检查记录"],
+            "outputs": ["专项安排", "检查记录"],
+        }
         required_processes = list(hardening.get("processes", []))
         required_tables = []
         required_visuals = []
@@ -555,14 +811,17 @@ def build_section_contracts(
         must_cover.extend(
             r.get("requirement_text") for r in primary_related
             if r.get("requirement_domain") not in {"exclusion"}
+            and r.get("requirement_class") not in {"COMMERCIAL", "QUALIFICATION", "LEGAL"}
+            and r.get("scope_disposition") != "EXCLUDED"
             and not is_bid_process_text(r.get("requirement_text") or "")
+            and (r.get("coverage_mode") == "FULL" or r.get("scope_class") == "TECHNICAL_INCLUDED")
         )
         if any(r.get("requirement_domain") == "exclusion" for r in primary_related):
             must_cover.append("明确记录并遵守项目负向Scope；仅说明会议会务服务不在本次范围内，不展开其流程、岗位或承诺")
         must_cover = list(dict.fromkeys(x for x in must_cover if x))
         section_prohibitions = list(hardening.get("must_not_cover", []))
         if sid.startswith("S05"):
-            section_prohibitions.append("商场闭店、店铺或专柜检查等非产业园模板场景")
+            section_prohibitions.append("与当前项目业态不符的其他项目模板场景")
         contracts.append({
             "section_id": sid,
             "section_title": info["section_title"],
@@ -574,7 +833,7 @@ def build_section_contracts(
             "scoring_items": sorted({r["scoring_item_id"] for r in related if r.get("scoring_item_id")}),
             "allowed_knowledge": selected,
             "conditional_knowledge": conditional,
-            "target_words": {"min": target_min, "max": target_max},
+            "target_words": {"min": target_min, "target": target_target, "max": target_max},
             "target_pages": {"min": max(1, round(target_min / 650)), "max": max(1, round(target_max / 480))},
             "required_tables": required_tables,
             "required_processes": list(dict.fromkeys(required_processes)),
@@ -641,6 +900,7 @@ def build_global_state(
     staffing_match = re.search(r"(\d+)\s*人", str(staffing_req.get("normalized_requirement", "")))
     hours_match = re.search(r"(\d+)\s*小时", str(hours_req.get("normalized_requirement", "")))
     sla_match = re.search(r"(\d+)\s*分钟", str(sla_req.get("normalized_requirement", "")))
+    source_staff = (pack.get("source_controls") or {}).get("staffing") or {}
     commitment_rows = [r for r in active if r.get("mandatory_level") == "MUST" and r.get("domain") != "scoring"]
     response_constraints = [
         {
@@ -654,14 +914,21 @@ def build_global_state(
     ]
     return {
         "schema_version": "document-global-state-v0.2-hardening",
-        "project_facts": deepcopy(pack.get("project_facts", {})),
+        "project_facts": {
+            key: {field: deepcopy(value) for field, value in fact.items() if field not in {"candidates", "source"}}
+            for key, fact in pack.get("project_facts", {}).items()
+            if fact.get("confirmation_status", "CONFIRMED") == "CONFIRMED"
+        },
         "client_requirements": [{"requirement_id": r["requirement_id"], "text": r.get("normalized_requirement", "")} for r in active],
+        "writing_constraints": deepcopy(pack.get("writing_constraints", [])),
+        "reference_material": deepcopy(pack.get("reference_material", [])),
         "confirmed_commitments": [r.get("normalized_requirement") for r in commitment_rows],
         "document_response_constraints": response_constraints,
         "service_scope": deepcopy(pack.get("service_scope", {})),
         "excluded_scope": deepcopy(pack.get("service_scope", {}).get("excluded", [])),
         "deprioritized_scope": deepcopy(pack.get("service_scope", {}).get("deprioritized", [])),
-        "staffing": {"minimum_staffing": int(staffing_match.group(1)) if staffing_match else None, "unit": "person", "source_requirement": staffing_req.get("requirement_id"), "status": "confirmed" if staffing_match else "unknown"},
+        "source_controls": deepcopy(pack.get("source_controls") or {}),
+        "staffing": (deepcopy(source_staff) if source_staff.get("status") == "source_literal" else {"minimum_staffing": int(staffing_match.group(1)) if staffing_match else None, "unit": "person", "source_requirement": staffing_req.get("requirement_id"), "status": "confirmed" if staffing_match else "unknown"}),
         "service_hours": {"daily_service_hours": int(hours_match.group(1)) if hours_match else None, "unit": "hour_per_day", "source_requirement": hours_req.get("requirement_id"), "status": "confirmed" if hours_match else "unknown"},
         "sla_kpi": {"complaint_first_response_minutes": int(sla_match.group(1)) if sla_match else None, "unit": "minute", "source_requirement": sla_req.get("requirement_id"), "status": "confirmed" if sla_match else "unknown"},
         "operating_models": ["项目负责人统筹", "专业责任到岗", "事项闭环", "数据复盘"],
@@ -675,6 +942,8 @@ def build_global_state(
         "open_clarifications": [r.get("normalized_requirement") for r in all_active if "扫描" in r.get("normalized_requirement", "")],
         "commitment_registry": [{"requirement_id": r["requirement_id"], "commitment": r.get("normalized_requirement"), "provenance": "confirmed_requirement_pack", "status": "confirmed"} for r in commitment_rows],
         "source_trace": {
+            "held_project_fact_requirements": [{"requirement_id": r["requirement_id"], "slots":r["held_project_fact_slots"], "status":r.get("confirmation_status")}
+                                                for r in all_active if r.get("held_project_fact_slots") and r.get("confirmation_status") not in {"CONFIRMED", "EDITED"}],
             "fixture_or_heading_markers": [{"requirement_id": r.get("requirement_id"), "raw_text": r.get("normalized_requirement", "")} for r in all_active if _is_non_content_marker(r)],
             "note": "原始Heading与模拟扫描标记仅供追溯，不进入规范化事实或承诺字段。",
         },
@@ -685,13 +954,13 @@ def build_global_state(
 
 def _ppt_chapters() -> list[dict[str, Any]]:
     defs = [
-        ("P01", "项目理解", 3, "建立共同语境，说明产业园特征、范围和关键约束", ["项目画像", "需求边界", "管理重难点"], "high"),
+        ("P01", "项目理解", 3, "建立共同语境，说明项目特征、范围和关键约束", ["项目画像", "需求边界", "管理重难点"], "high"),
         ("P02", "服务构想", 3, "给出贯穿全案的服务主张和运营闭环", ["服务定位", "总体架构", "价值路径"], "high"),
         ("P03", "组织与客户服务", 5, "说明团队如何承接需求并形成客户诉求闭环", ["组织职责", "人员与服务时间", "客户触点", "投诉闭环"], "high"),
-        ("P04", "安全管理", 6, "围绕产业园通行、巡逻和异常联动呈现秩序能力", ["风险画像", "岗位协同", "巡逻机制", "人车秩序", "事件联动"], "high"),
+        ("P04", "安全管理", 6, "围绕项目通行、巡逻和异常联动呈现秩序能力", ["风险画像", "岗位协同", "巡逻机制", "人车秩序", "事件联动"], "high"),
         ("P05", "工程管理", 6, "呈现设施设备从台账到巡检维保的运行逻辑", ["工程边界", "设备台账", "巡检维保", "故障闭环", "运行记录"], "high"),
         ("P06", "环境与品质", 6, "将现场环境与品质闭环合并成可检查的管理系统", ["环境组织", "作业标准", "检查整改", "品质巡检", "持续改进"], "normal"),
-        ("P07", "项目专项与服务保障", 6, "突出产业园人车流线、进场协同和应急保障", ["园区专项", "进场计划", "应急资源", "沟通报告", "履约保障"], "high"),
+        ("P07", "项目专项与服务保障", 6, "突出项目人车流线、进场协同和应急保障", ["项目专项", "进场计划", "应急资源", "沟通报告", "履约保障"], "high"),
         ("P08", "经验边界与服务价值", 5, "以证据边界、阶段成果和服务价值完成收束", ["成果清单", "案例来源边界", "服务价值", "下一步"], "normal"),
     ]
     return [
@@ -710,7 +979,7 @@ def _storyboard_templates() -> dict[str, list[tuple[str, str, str, str]]]:
     return {
         "P01": [
             ("项目封面", "opening", "以项目名称和服务主题建立正式开场", "hero"),
-            ("产业园项目画像", "insight", "从区位、面积、业态与服务对象理解管理场景", "profile"),
+            ("项目画像", "insight", "从区位、面积、业态与服务对象理解管理场景", "profile"),
             ("需求边界与关键挑战", "insight", "确认服务范围、排除项和首要管理难点", "matrix"),
         ],
         "P02": [
@@ -721,15 +990,15 @@ def _storyboard_templates() -> dict[str, list[tuple[str, str, str, str]]]:
         "P03": [
             ("项目组织与协同机制", "system", "项目负责人统筹，各专业协同承接客户与现场任务", "org"),
             ("人员配置与服务时间", "detail", "已确认人员和服务时间进入排班与履约控制", "table"),
-            ("客户服务触点", "strategy", "围绕园区真实服务对象组织受理、协调与反馈", "journey"),
+            ("客户服务触点", "strategy", "围绕项目真实服务对象组织受理、协调与反馈", "journey"),
             ("投诉响应闭环", "process", "投诉从受理、首响、处理到回访形成可追踪闭环", "process"),
             ("客户服务成果", "evidence", "用台账、时效和回访记录证明服务有效", "dashboard"),
         ],
         "P04": [
-            ("产业园安全风险画像", "insight", "识别人车流线、重点区域和生产协同风险", "risk_map"),
+            ("项目安全风险画像", "insight", "识别人车流线、重点区域和业务协同风险", "risk_map"),
             ("秩序岗位协同", "system", "门岗、巡逻和事件处置形成相互支撑的现场协同", "org"),
             ("巡逻机制与频次控制", "process", "按确认频次组织路线、签到、异常和复核", "process"),
-            ("人车通行秩序", "detail", "分时、分区和异常放行规则保障园区通行", "matrix"),
+            ("人车通行秩序", "detail", "分时、分区和异常放行规则保障项目通行", "matrix"),
             ("重点事件联动", "process", "异常发现后快速上报、协同和恢复", "process"),
             ("安全管理成果", "summary", "以巡逻、事件和整改记录形成安全管理证据", "dashboard"),
         ],
@@ -739,10 +1008,10 @@ def _storyboard_templates() -> dict[str, list[tuple[str, str, str, str]]]:
             ("巡检与预防性维护", "process", "以计划、标准和记录预防设备故障", "process"),
             ("故障处置闭环", "process", "报修、判断、处置、验证和复盘形成闭环", "process"),
             ("运行记录与风险预警", "evidence", "通过趋势记录识别异常并安排干预", "dashboard"),
-            ("工程管理价值", "summary", "以安全、稳定和可追溯支撑园区运营", "value"),
+            ("工程管理价值", "summary", "以安全、稳定和可追溯支撑项目运营", "value"),
         ],
         "P06": [
-            ("环境服务目标", "strategy", "围绕园区场景建立清洁、秩序和体验标准", "modules"),
+            ("环境服务目标", "strategy", "围绕项目场景建立清洁、秩序和体验标准", "modules"),
             ("作业组织与重点区域", "detail", "按区域、时段和风险组织差异化作业", "matrix"),
             ("现场质量检查", "process", "班组自查、专业检查和问题复核形成闭环", "process"),
             ("品质巡检机制", "system", "日常巡检连接问题发现、责任落实和整改验证", "architecture"),
@@ -750,7 +1019,7 @@ def _storyboard_templates() -> dict[str, list[tuple[str, str, str, str]]]:
             ("供方管理边界", "detail", "仅在确认采用供方时启用履约管理方法", "boundary"),
         ],
         "P07": [
-            ("产业园专项：生产物流与业务协同", "insight", "聚焦生产物流、高峰时段和特殊作业界面，不重复通用门区与通行规则", "scenario"),
+            ("项目专项：物流与业务协同", "insight", "聚焦物流、高峰时段和特殊作业界面，不重复通用门区与通行规则", "scenario"),
             ("进场准备路线图", "process", "资料、人员、现场和机制按里程碑有序启动", "timeline"),
             ("应急管理架构", "system", "统一指挥、专业响应和外部联动构成应急体系", "architecture"),
             ("典型事件响应", "process", "事件分级、报告、处置和复盘形成标准动作", "process"),
@@ -767,12 +1036,16 @@ def _storyboard_templates() -> dict[str, list[tuple[str, str, str, str]]]:
     }
 
 
-def build_ppt_plan(pack: dict[str, Any], word_outline: list[dict[str, Any]]) -> dict[str, Any]:
+def build_ppt_plan(pack: dict[str, Any], word_outline: list[dict[str, Any]], document_scale: str = "regular_solution") -> dict[str, Any]:
+    from .ppt_service import enabled, build_plan
+    if enabled(pack):
+        profile = DOCUMENT_SCALE_PROFILES[normalize_document_scale(document_scale)]
+        return build_plan(pack, word_outline, slide_band=(profile["ppt_slides_min"], profile["ppt_slides_max"]))
     chapters = _ppt_chapters()
     templates = _storyboard_templates()
     slides: list[dict[str, Any]] = []
     source_map = {
-        "产业园项目画像": ["REQ-0001", "REQ-0002", "REQ-0003", "REQ-0004"],
+        "项目画像": ["REQ-0001", "REQ-0002", "REQ-0003", "REQ-0004"],
         "需求边界与关键挑战": ["REQ-0017"],
         "人员配置与服务时间": ["REQ-0006", "REQ-0015"],
         "投诉响应闭环": ["REQ-0016"],
@@ -783,7 +1056,7 @@ def build_ppt_plan(pack: dict[str, Any], word_outline: list[dict[str, Any]]) -> 
     for chapter in chapters:
         for title, role, message, family in templates[chapter["chapter_id"]]:
             evidence = "SOURCE_REQUIRED" if role == "case" else "confirmed_requirement_pack_or_planner_method"
-            topic_owner = "general_access_control" if chapter["chapter_id"] == "P04" else ("industrial_logistics_coordination" if title.startswith("产业园专项") else None)
+            topic_owner = "general_access_control" if chapter["chapter_id"] == "P04" else ("project_logistics_coordination" if title.startswith("项目专项") else None)
             slides.append({
                 "slide_id": f"SL-{number:03d}", "chapter_id": chapter["chapter_id"],
                 "slide_title": title, "slide_role": role, "core_message": message,
@@ -815,7 +1088,7 @@ def build_ppt_plan(pack: dict[str, Any], word_outline: list[dict[str, Any]]) -> 
     return {
         "schema_version": "ppt-presentation-plan-v0.2-hardening",
         "presentation_narrative": {
-            "story": "先证明理解产业园项目和边界，再说明服务构想与专业能力，随后用专项保障和可核验成果完成价值收束。",
+            "story": "先证明理解项目条件和边界，再说明服务构想与专业能力，随后用专项保障和可核验成果完成价值收束。",
             "opening_rhythm": {"project_understanding_slides": 3, "service_concept_slides": 3},
             "principles": ["PPT是独立汇报叙事", "不复制Word目录", "不以评分条款控制前台结构", "无真实案例源不生成案例事实"],
         },
@@ -827,7 +1100,7 @@ def build_ppt_plan(pack: dict[str, Any], word_outline: list[dict[str, Any]]) -> 
         "slide_storyboard": slides,
         "ppt_topic_ownership": [
             {"topic": "general_access_control", "primary_owner": "P04", "scope": "门区、人员、车辆、通行秩序与一般异常处置", "other_chapters_mode": "REFERENCE_ONLY"},
-            {"topic": "industrial_logistics_coordination", "primary_owner": "P07", "scope": "生产物流、业务高峰、特殊作业界面与产业园协同", "other_chapters_mode": "REFERENCE_ONLY"},
+            {"topic": "project_logistics_coordination", "primary_owner": "P07", "scope": "物流、业务高峰、特殊作业界面与项目协同", "other_chapters_mode": "REFERENCE_ONLY"},
         ],
         "source_trace_policy": {"frontend_req_id_visible": False, "backend_trace_required_for_confirmed_numeric_scope_and_sla": True},
         "coverage_summary": {"items": coverage, "present_or_implicit": len(coverage), "not_present": 0},
@@ -888,7 +1161,11 @@ def validate_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "B-W06": len({r["topic"] for r in contracts["topic_ownership"]}) == len(contracts["topic_ownership"]) and len({r["primary_owner"] for r in contracts["topic_ownership"]}) == len(contracts["topic_ownership"]),
         "B-W07": global_state["canonical_roles"].get("project_lead") == "项目负责人",
         "B-W08": bool(dependency["dependencies"]),
-        "B-W09": 50 <= budget["totals"]["planning_pages"] <= 80,
+        "B-W09": (
+            bundle["document_target"]["word"]["target_pages_min"]
+            <= budget["totals"]["planning_pages"]
+            <= bundle["document_target"]["word"]["target_pages_max"]
+        ),
         "B-W10": len(word_titles) == len(word["outline"]),
         "B-W11": bool(professional_contracts) and len(specific_professional) / len(professional_contracts) >= 0.8,
         "B-W12": bool(contracts.get("process_contracts")) and all(process_fields <= set(row) for row in contracts["process_contracts"]),
@@ -899,7 +1176,7 @@ def validate_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "B-P03": 35 <= len(ppt["slide_storyboard"]) <= 50,
         "B-P04": all(v <= 10 for v in professional.values()),
         "B-P05": professional.get("组织与客户服务", 0) <= 9,
-        "B-P06": any("产业园专项" in s["slide_title"] for s in ppt["slide_storyboard"]),
+        "B-P06": any("项目专项" in s["slide_title"] for s in ppt["slide_storyboard"]),
         "B-P07": ppt["layout_diversity_summary"]["slide_role_count"] >= 3 and ppt["layout_diversity_summary"]["max_consecutive_same_family"] <= 3,
         "B-P08": len(tender_titles) <= 1,
         "B-P09": bool(case_slides) and all(s["evidence_requirement"] == "SOURCE_REQUIRED" for s in case_slides),
@@ -908,6 +1185,9 @@ def validate_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "B-P12": "REQ-" not in frontend_text and "SCR-" not in frontend_text,
         "B-P13": {row["topic"]: row["primary_owner"] for row in ppt["ppt_topic_ownership"]} == {"general_access_control": "P04", "industrial_logistics_coordination": "P07"},
         "B-P14": not any(term in frontend_text for term in ("责任链", "履约保障组合", "承诺与证据边界", "从需求到成果的价值路径")),
+        "B-S01": (bundle.get("technical_scope_gate") or {}).get("status") == "TECHNICAL_ONLY",
+        "B-S02": not ((bundle.get("technical_scope_gate") or {}).get("enforcement_evidence") or {}).get("matrix_rows_with_excluded_scope"),
+        "B-S03": not ((bundle.get("technical_scope_gate") or {}).get("enforcement_evidence") or {}).get("section_contracts_with_excluded_must_cover"),
     }
     return {
         "status": "PASS" if all(checks.values()) else "FAIL",
@@ -917,6 +1197,8 @@ def validate_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         "metrics": {
             "must": f"{coverage['must_mapped']}/{coverage['must_total']}",
             "scoring": f"{coverage['scoring_mapped']}/{coverage['scoring_total']}",
+            "technical_scoring_denominator": coverage.get("technical_scoring_total"),
+            "scope_excluded_requirements": coverage.get("scope_excluded_requirement_total"),
             "word_chapters": len(word["outline"]),
             "word_sections": len(word_sections),
             "specific_section_contracts": contracts["hardening_metrics"]["specific_contract_count"],
@@ -938,9 +1220,11 @@ def validate_production_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any
     matrix = bundle["requirement_matrix"]
     sections = [section for chapter in word.get("outline", []) for section in chapter.get("sections", [])]
     contract_ids = [row.get("section_id") for row in contracts.get("contracts", [])]
+    scope_gate = bundle.get("technical_scope_gate") or {}
     checks = {
         "DOCUMENT_PLAN": bool(word.get("outline")) and len(word["outline"]) >= 8,
         "REQUIREMENT_SECTION_MATRIX": bool(matrix.get("matrix")),
+        "TECHNICAL_ONLY_SCOPE_GATE": (bundle.get("technical_scope_gate") or {}).get("status") == "TECHNICAL_ONLY",
         "CONTENT_BUDGET": bool(budget.get("chapters")) and budget.get("totals", {}).get("target_words_min", 0) > 0,
         "SECTION_CONTRACTS": len(contract_ids) == len(sections) and len(sections) > 0,
         "PROVIDER_INDEPENDENT_OUTLINE": True,
@@ -958,6 +1242,11 @@ def validate_production_planning_bundle(bundle: dict[str, Any]) -> dict[str, Any
             "word_sections": len(sections),
             "contracts": len(contract_ids),
             "budget_words_min": budget.get("totals", {}).get("target_words_min"),
+            "scope_gate_status": scope_gate.get("status"),
+            "scope_counts": scope_gate.get("scope_counts"),
+            "scope_excluded_total": (scope_gate.get("totals") or {}).get("excluded"),
+            "technical_scoring_denominator": scope_gate.get("technical_scoring_denominator"),
+            "excluded_scoring_total": len(scope_gate.get("excluded_scoring_register_ids") or []),
         },
     }
 
@@ -968,23 +1257,44 @@ def build_planning_bundle(pack: dict[str, Any], brief: dict[str, Any], knowledge
         raise PlanningError("仅允许使用已确认且ready_for_plan的Requirement Pack。")
     if production and not pack.get("requirements") and not pack.get("explicit_requirements"):
         raise PlanningError("缺少可用于规划的Requirement Pack。")
-    target = build_document_target()
+    document_scale = normalize_document_scale(brief.get("document_scale") or "regular_solution")
+    target = build_document_target(target_scale=document_scale)
     outline, adaptive = build_adaptive_outline(pack, brief)
+    outline = apply_document_scale(outline, document_scale)
     matrix = build_requirement_matrix(pack, outline)
-    budget = build_content_budget(outline, matrix)
+    requirement_classification = build_requirement_classification(pack)
+    class_by_id = {row.get("requirement_id"): row.get("requirement_class") for row in requirement_classification.get("rows") or []}
+    for row in matrix.get("matrix") or []:
+        row["requirement_class"] = class_by_id.get(row.get("requirement_id"), "REFERENCE")
+    budget = build_content_budget(outline, matrix, speed_profile=brief.get("speed_profile"), document_scale=document_scale)
+    target["word"]["target_effective_chars_min"] = budget["totals"]["target_effective_chars_min"]
+    target["word"]["target_effective_chars_max"] = budget["totals"]["target_effective_chars_max"]
+    target["word"]["target_effective_chars_target"] = budget["totals"]["target_effective_chars_target"]
     contracts = build_section_contracts(pack, outline, matrix, budget, knowledge_selection)
+    technical_scope_gate = build_technical_scope_gate(
+        requirement_classification,
+        matrix=matrix,
+        contracts=contracts,
+        scoring_items=pack.get("scoring_items") or [],
+        scoring_graph=pack.get('scoring_graph') or {},
+    )
+    # §38/§39：门的结论回填给需求矩阵，Final QA 与规划期读到的分母从此是同一个。
+    reconcile_requirement_denominator(matrix, technical_scope_gate)
     dependency = build_dependency_map(outline)
     global_state = build_global_state(pack, brief, outline, matrix, contracts, dependency)
     word_plan = {
         "schema_version": "word-document-plan-v0.1",
         "document_target": target["word"],
         "document_type": "Detailed Service Solution",
-        "planning_principles": ["需求覆盖优先", "负向Scope优先", "评分重点影响篇幅", "不为凑页数注水", "章节按业务需要动态展开"],
+        "planning_principles": ["只生成技术标正文（商务、报价、资格、资信、法务程序条款仅登记不建结构）", "需求覆盖优先", "负向Scope优先", "评分重点影响篇幅", "不为凑页数注水", "章节按业务需要动态展开"],
         "outline": outline,
+        "mandatory_scope_text": str(pack.get("mandatory_scope_text") or ""),
         "coverage_gate": deepcopy(matrix["coverage_summary"]),
         "provider_independent": True,
     }
-    ppt_plan = build_ppt_plan(pack, outline)
+    ppt_plan = build_ppt_plan(pack, outline, document_scale)
+    commercial_compliance_matrix = build_commercial_compliance_matrix(requirement_classification)
+    bidder_evidence_ledger = build_bidder_evidence_ledger(pack)
     bundle = {
         "document_target": target,
         "word_plan": word_plan,
@@ -995,6 +1305,10 @@ def build_planning_bundle(pack: dict[str, Any], brief: dict[str, Any], knowledge
         "dependency_map": dependency,
         "ppt_plan": ppt_plan,
         "adaptive_section_decision": adaptive,
+        "requirement_classification": requirement_classification,
+        "commercial_compliance_matrix": commercial_compliance_matrix,
+        "technical_scope_gate": technical_scope_gate,
+        "bidder_evidence_ledger": bidder_evidence_ledger,
     }
     bundle["validation"] = validate_production_planning_bundle(bundle) if production else validate_planning_bundle(bundle)
     return bundle
@@ -1027,6 +1341,10 @@ def generate_stage_artifacts(
         "global_state": stage_root / "05_document_global_state_v0.json",
         "ppt_plan": stage_root / "06_ppt_presentation_plan.json",
         "dependency_map": stage_root / "07_cross_section_dependency.json",
+        "requirement_classification": stage_root / "11_requirement_classification.json",
+        "commercial_compliance_matrix": stage_root / "12_commercial_compliance_matrix.json",
+        "bidder_evidence_ledger": stage_root / "13_bidder_evidence_ledger.json",
+        "technical_scope_gate": stage_root / "14_technical_scope_gate.json",
     }
     for key, path in files.items():
         write_json(path, bundle[key])

@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -16,14 +17,25 @@ LONGFORM_ORCHESTRATOR_VERSION = "0.1-r2.7"
 PRESERVE_DIST_DIRS = ("runtime", "output", "config", "runs", "logs")
 LOCAL_CONFIG_NAMES = {"providers.local.json", "user_settings.json"}
 REQUIRED = (
+    "app/planning/ppt_service.py",
+    "app/project_assets.py",
+    "app/ppt_final_verify.py",
+    "tests/test_ppt_service_contract.py",
+    "app/filesystem_paths.py",
+    "app/windows_paths.mjs",
     "app/planning/planner.py",
+    "app/planning/content_engineering.py",
     "app/planning/canonical.py",
+    "app/planning/manual_brief.py",
+    "tests/test_manual_brief_ingestion.py",
     "app/longform/factory.py",
     "app/longform/orchestrator.py",
     "app/longform/batch_planner.py",
+    "app/longform/cu_audit.py",
     "app/longform/scheduler.py",
     "app/longform/reasoning.py",
     "app/longform/eta.py",
+    "app/longform/run_state.py",
     "app/workflow_timing.py",
     "app/providers/capability.py",
     "app/providers/rate_limit.py",
@@ -33,16 +45,55 @@ REQUIRED = (
     "app/governance/artifact_qa.py",
     "app/governance/commitment_provenance.py",
     "app/governance/final_artifact_qa.py",
+    "app/governance/toc_qa.py",
     "app/governance/text_sanitize.py",
     "app/governance/customer_hygiene.py",
     "app/tender_intake/pack_builder.py",
     "app/tender_intake/models.py",
     "app/tender_intake/confirmation.py",
     "app/app_core.py",
+    "app/run_layout.py",
+    "app/providers/mock.py",
     "app/workflow_policy.py",
     "app/recovery_orchestrator.py",
     "app/delivery_state.py",
+    "app/qa_severity.py",
     "app/longform/repair_policy.py",
+    "app/longform/envelope.py",
+    "app/longform/local_normalize.py",
+    "app/longform/cu_state.py",
+    "app/longform/depth_supplement.py",
+    "app/longform/supplement_registry.py",
+    "app/r07_table_layout.py",
+    "tests/test_run_k_r07_table_layout.py",
+    "tests/test_run_k_r07_supplement_preservation.py",
+    "tests/test_run_k_r07_source_projection.py",
+    "app/longform/document_repair.py",
+    "app/governance/document_qa.py",
+    # MMF-007C Round 3：P0-1/P0-2/P0-4/P0-5/P1 五块新门都落在这几个模块里，
+    # 少带任何一个，dist 里的 import 就会在第一次真实运行时炸。
+    "app/governance/table_qa.py",
+    "app/planning/budget_control.py",
+    "app/planning/page_calibration.py",
+    "app/planning/scoring_evidence.py",
+    "app/planning/content_padding.py",
+    "app/providers/qoder_internal.py",
+    "app/providers/network_lockdown.py",
+    "tools/qoder_bridge.py",
+    "tests/test_mmf007c_qa_pipeline.py",
+    "tests/test_mmf007c_page_calibration.py",
+    "tests/test_mmf007c_qa_precision.py",
+    "tests/test_mmf007c_qoder_internal_bridge.py",
+    # MMF-007C Round 3 新增的门禁测试：随包一起验，缺一条就说明 dist 少带了东西。
+    "tests/test_mmf007c_table_density.py",
+    "tests/test_mmf007c_form_table_governance.py",
+    "tests/test_mmf007c_bidder_evidence_boundary.py",
+    "tests/test_mmf007c_content_padding_ruler.py",
+    "tests/test_mmf007c_technical_only_scope.py",
+    "tests/test_mmf007c_depth_supplement.py",
+    "tests/test_mmf007c_late_response.py",
+    "tests/test_mmf007c_throughput.py",
+    "tests/test_mmf007c_toc_pagination.py",
     "app/server.py",
     "static/index.html",
     "app/package.json",
@@ -58,6 +109,33 @@ REQUIRED = (
     "tests/test_mmf006e_r25_recovery_hygiene.py",
     "tests/test_mmf006e_r26_fail_soft_delivery.py",
     "tests/test_mmf006e_r27_fast_performance.py",
+    "tests/test_mmf007_final_closure.py",
+    "tests/test_mmf007_production_faults.py",
+    "tests/test_mmf007b_content_engineering.py",
+    "tests/test_mmf007b_real_run_fix.py",
+    "tests/test_image_provider_endpoints.py",
+    # MMF-007C Round 4 / 4.1：评分映射与状态权威这四条链的门禁模块。少带任何一个，
+    # dist 里的 import 就会在第一次真实运行时炸；`tests/conftest.py` 更是测试侧
+    # 网络禁令唯一的落点（R41 §30 之后它引用的是产品那份判定），漏带等于整包失锁。
+    "app/planning/hierarchy.py",
+    "app/planning/scoring_taxonomy.py",
+    "app/planning/scoring_mapping.py",
+    "app/planning/unified_budget.py",
+    "app/planning/scope_gated_requirements.py",
+    "tests/conftest.py",
+    "tests/test_mmf007a_hierarchy.py",
+    "tests/test_mmf007c_scoring_taxonomy.py",
+    "tests/test_mmf007c_scope_gated_requirements.py",
+    "tests/test_mmf007c_unified_budget.py",
+    "tests/test_mmf007c_reduction_executor.py",
+    "tests/test_mmf007c_r4_final_state_contract.py",
+    "tests/test_mmf007c_r4_table_governance_budget.py",
+    "tests/test_mmf007c_r41_scoring_auto_mapping.py",
+    "tests/test_mmf007c_r41_final_qa_fail_closed.py",
+    "tests/test_mmf007c_r41_page_calibration.py",
+    "tests/test_mmf007c_r41_structure_survival.py",
+    "tests/test_mmf007c_r41_network_lockdown_single_ruler.py",
+    "tools/mmf007b_synthetic_validation.py",
 )
 IGNORE = shutil.ignore_patterns(
     "dist",
@@ -70,6 +148,13 @@ IGNORE = shutil.ignore_patterns(
     "*.pyc",
     "providers.local.json",
     "user_settings.json",
+    ".git",          # Git 安全整改：主仓 .git 不得进入发布包
+    ".pytest_cache",
+    ".pack_preserve_r22",
+    "migration_backup",
+    # Frozen reviewer dispatch instructions contain machine-local paths and are
+    # development evidence, rather than a portable runtime interface.
+    "RUN_J_ZCODE_INDEPENDENT_GATE.md",
 )
 
 
@@ -143,6 +228,42 @@ def _hash_files(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _measure_tests_at_build() -> int:
+    """构建清单里的 `tests_at_build` 必须当场量出来，不能抄上一份。
+
+    Round 2/Round 3 各有三次构建因为"建完又改这个数字"被作废（见
+    MMF-007_review_bundle.json 的 invalidated_builds）—— 字面量就是那个根因。
+    必须在任何破坏性步骤之前量：collect 失败时 dist 必须还是原样。
+    """
+    venv_python = PACKAGE / "runtime" / "dev_python" / "Scripts" / "python.exe"
+    interpreter = str(venv_python) if venv_python.is_file() else sys.executable
+    collect_temp = Path(os.environ.get("MMF_PACK_COLLECT_EVIDENCE_DIR") or
+                        PACKAGE / "runtime" / "scratch_pack_collect")
+    check = subprocess.run(
+        [interpreter, "-m", "pytest", "tests", "--collect-only", "-q",
+         "-p", "no:cacheprovider", "--basetemp", str(collect_temp)],
+        cwd=str(PACKAGE), capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=600,
+    )
+    if check.returncode != 0:
+        raise SystemExit("pack refused: test collection failed; existing dist was not changed\n"
+                         + (check.stdout or "")[-2000:] + (check.stderr or "")[-2000:])
+    tail = [line for line in (check.stdout or "").splitlines() if line.strip()]
+    for line in reversed(tail):
+        marker = line.find(" tests collected")
+        if marker >= 0:
+            count = int(line[:marker].strip().split()[-1])
+            break
+    else:
+        collected = [line for line in tail if "::" in line and not line.startswith((".", "E", "W"))]
+        if not collected:
+            raise SystemExit("pack refused: test collection reported no count; existing dist was not changed")
+        count = len(collected)
+    if count <= 0:
+        raise SystemExit("pack refused: test collection produced 0 tests; existing dist was not changed")
+    return count
+
+
 def main() -> None:
     dist = DIST.resolve()
     expected = (PACKAGE / "dist" / "MMF-006E-portable-v0.1").resolve()
@@ -164,6 +285,7 @@ def main() -> None:
             break
     if ppt_source is None:
         raise SystemExit("pack refused: complete loadable PPT dependencies are required; existing dist was not changed")
+    tests_at_build = _measure_tests_at_build()
     preserve_root = PACKAGE / "dist" / ".pack_preserve_r22"
     if preserve_root.exists():
         raise SystemExit("pack refused: previous recovery backup exists; restore/preserve it before retrying")
@@ -182,6 +304,10 @@ def main() -> None:
     if cache_dir.exists():
         shutil.rmtree(cache_dir)
     source_hash = _hash_files(PACKAGE)
+    git_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=str(PACKAGE),
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
     built_at = datetime.now().astimezone().isoformat(timespec="seconds")
     build_id = f"MMF006E-R2.7-{source_hash[:12]}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
     shutil.copytree(PACKAGE, DIST, ignore=IGNORE)
@@ -241,6 +367,11 @@ def main() -> None:
         elif name == "config":
             dest.mkdir(exist_ok=True)
             for item in src.iterdir():
+                # Preserve only machine-local user choices.  Restoring the
+                # whole old config directory would overwrite the newly built
+                # providers.example.json and silently discard new providers.
+                if item.name not in LOCAL_CONFIG_NAMES:
+                    continue
                 target = dest / item.name
                 if item.is_dir():
                     if target.exists():
@@ -272,12 +403,17 @@ def main() -> None:
         "public_package_excludes_local_config": True,
         "longform_orchestrator_version": LONGFORM_ORCHESTRATOR_VERSION,
         "build_id": build_id,
+        "build_git_sha": git_sha,
         "runtime_source": "dist",
+        "tests_at_build": tests_at_build,
+        "tests_at_build_provenance": "measured by pytest --collect-only -q on the source tree during this pack run",
         "ppt_dependencies": {"status": "PASS", "version": json.loads(ppt_check.stdout).get("version"), "bundled": True},
         "included_longform": list(REQUIRED),
     }
     (DIST / "build_manifest.json").write_text(json.dumps(build_manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    (PACKAGE / "build_manifest.json").write_text(json.dumps({**build_manifest, "runtime_source": "source", "last_packed_dist": str(DIST)}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # The final build must not dirty the committed source tree.  The authoritative
+    # build manifest lives in production_dist; the source-tree manifest is retained
+    # as historical metadata and is not rewritten after the final commit.
     manifest_path = PACKAGE / "release_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     manifest.update({

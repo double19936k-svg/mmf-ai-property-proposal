@@ -1,0 +1,202 @@
+{
+  "run_id": "tender_20260910_082708_085717",
+  "status": "final_artifact_blocked",
+  "partial": true,
+  "phase": "FINAL_ARTIFACT_QA",
+  "artifact_qa_status": "BLOCK",
+  "final_artifact_qa_status": "BLOCK",
+  "quarantined_artifact": "runs\\tender_20260910_082708_085717\\_blocked_artifact\\青岛海信国际中心物业顾问服务项目_完整物业服务方案_20260910_083849.docx",
+  "runtime_source": "dist",
+  "build_id": "MMF006E-R2.5-67a35be4e2d8-20260910013117",
+  "TEST_TARGET": "production_dist",
+  "created_at": "2026-09-10T08:38:59+08:00",
+  "workflow_id": "workflow_bb9de188e2b04732b322ceed69314b18",
+  "workflow_started_at": "2026-09-10T08:27:08+08:00",
+  "workflow_completed_at": "2026-09-10T08:38:59+08:00",
+  "total_processing_seconds": 697.877,
+  "processing_seconds_so_far": 697.877,
+  "current_active_stage": null,
+  "current_active_stage_elapsed_seconds": 0.0,
+  "current_total_processing_seconds": 697.877,
+  "stage_timings": {
+    "upload_and_file_processing": {
+      "elapsed_seconds": 0.017,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.017,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:27:08+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:27:08+08:00"
+    },
+    "local_parse": {
+      "elapsed_seconds": 0.388,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.388,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:27:08+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:27:08+08:00"
+    },
+    "requirement_recognition_and_structuring": {
+      "elapsed_seconds": 45.623,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 45.623,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:27:55+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:27:55+08:00"
+    },
+    "brief_generation": {
+      "elapsed_seconds": 0.101,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.101,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:28:01+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:28:01+08:00"
+    },
+    "knowledge_recommendation": {
+      "elapsed_seconds": 33.487,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 33.487,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:28:34+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:28:34+08:00"
+    },
+    "generation_preparation": {
+      "elapsed_seconds": 0.165,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.165,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:28:41+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:28:41+08:00"
+    },
+    "document_planning": {
+      "elapsed_seconds": 0.109,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.109,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:34:18+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:34:18+08:00"
+    },
+    "longform_generation": {
+      "elapsed_seconds": 156.902,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 156.902,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:34:18+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:34:18+08:00"
+    },
+    "section_repair": {
+      "elapsed_seconds": 442.007,
+      "attempt_count": 4,
+      "segments": [
+        {
+          "elapsed_seconds": 179.436,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:34:18+08:00"
+        },
+        {
+          "elapsed_seconds": 203.377,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:37:43+08:00"
+        },
+        {
+          "elapsed_seconds": 29.935,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:38:15+08:00"
+        },
+        {
+          "elapsed_seconds": 29.259,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:38:47+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:38:47+08:00"
+    },
+    "content_and_compliance_qa": {
+      "elapsed_seconds": 8.908,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 8.908,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:38:49+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:38:49+08:00"
+    },
+    "artifact_assembly": {
+      "elapsed_seconds": 0.849,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 0.849,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:38:50+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:38:50+08:00"
+    },
+    "final_artifact_qa": {
+      "elapsed_seconds": 9.321,
+      "attempt_count": 1,
+      "segments": [
+        {
+          "elapsed_seconds": 9.321,
+          "outcome": "completed",
+          "completed_at": "2026-09-10T08:38:59+08:00"
+        }
+      ],
+      "last_outcome": "completed",
+      "last_completed_at": "2026-09-10T08:38:59+08:00"
+    }
+  },
+  "user_idle_seconds": null,
+  "generation_seconds": 156.902,
+  "repair_seconds": 442.007,
+  "artifact_seconds": 0.849,
+  "qa_seconds": 18.229,
+  "workflow_qa_seconds": 18.229,
+  "workflow_timing_method": "completed_stage_seconds_plus_current_active_stage_elapsed_seconds",
+  "provider_wait_seconds": 0.0
+}

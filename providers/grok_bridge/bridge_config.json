@@ -1,8 +1,15 @@
 {
   "grok_executable": "",
+  "model_alias": "grok-4.6",
+  "expected_model": "grok-4.6",
+  "reasoning_effort": "low",
+  "health_timeout_seconds": 30,
+  "timeout_seconds": 1800,
+  "network_retries": 2,
   "runtime_root": "runtime",
   "proxy": {
-    "enabled": false,
+    "mode": "auto",
+    "enabled": true,
     "url": "",
     "no_proxy": "localhost,127.0.0.1"
   },
@@ -14,5 +21,5 @@
     "permission_mode": "plan",
     "timeout_seconds": 300
   },
-  "notes": "Optional Local Grok Bridge. Leave grok_executable empty to auto-detect PATH or %USERPROFILE%\\.grok\\bin\\grok.exe. Do not store API keys here."
+  "notes": "Local Grok Bridge. grok_executable can be empty; the adapter auto-detects %USERPROFILE%\\.grok\\bin\\grok.exe. Do not store API keys here."
 }

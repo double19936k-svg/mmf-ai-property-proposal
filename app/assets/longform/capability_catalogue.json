@@ -1,0 +1,446 @@
+{
+  "schema_version": "mmf-capability-catalogue-v0.1",
+  "source_note": "本目录的领域知识由本仓库既有规划目录（planner 的 Section Contract 与 Process Contract、hierarchy 的章节路由规则中点名的输出物）结合物业服务通用作业标准里常见的台账、标准表、记录表与预案形态整理而成，属于编制方法层面的工程知识，不构成任何本项目的招标事实或承诺。",
+  "domains": [
+    {
+      "key": "customer_service",
+      "label": "客户服务与诉求闭环",
+      "signals": ["客户服务", "客服", "投诉", "回访", "诉求", "受理", "服务渠道", "服务界面"],
+      "capabilities": [
+        {
+          "key": "cs_service_channel_matrix",
+          "capability": "服务流程与受理渠道清单",
+          "required_output": "受理渠道与服务界面清单（渠道名称、受理事项范围、接办岗位、转派与反馈接口）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["受理渠道", "客户触点", "服务渠道清单", "报修受理范围"],
+          "min_items": 6
+        },
+        {
+          "key": "cs_complaint_grading_matrix",
+          "capability": "投诉分级与升级条件",
+          "required_output": "投诉分级判定与升级条件表（级别判定依据、首响责任岗位、升级触发情形、超时转派规则）",
+          "archetype": "MATRIX",
+          "detect": ["投诉分级", "升级条件", "投诉级别判定", "重复投诉升级"],
+          "min_items": 5
+        },
+        {
+          "key": "cs_revisit_closure_rule",
+          "capability": "回访标准与关闭规则",
+          "required_output": "回访与关闭作业规程（回访对象、回访时点、回访内容、结果不满意时的重新分派与关闭条件）",
+          "archetype": "SOP",
+          "detect": ["回访标准", "回访与关闭", "关闭条件", "回访记录"],
+          "min_items": 5
+        },
+        {
+          "key": "cs_complaint_ledger_form",
+          "capability": "客服记录表与投诉台账模板",
+          "required_output": "投诉台账与处理记录表字段模板（登记编号、诉求类别、受理时间、责任专业、处置过程、回访结果、关闭签字）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["投诉台账", "客服记录表", "处理记录表", "诉求登记表"],
+          "min_items": 8
+        },
+        {
+          "key": "cs_item_dispatch_matrix",
+          "capability": "客户事项分类分派与协同接口",
+          "required_output": "客户事项分类分派表（报修、咨询、求助、投诉等事项类型的受理岗位、专业接口与反馈路径）",
+          "archetype": "RESPONSIBILITY_MATRIX",
+          "detect": ["事项分派", "分类分派", "派单规则", "工单转派"],
+          "min_items": 6
+        }
+      ]
+    },
+    {
+      "key": "order_security",
+      "label": "秩序与安全",
+      "signals": ["秩序", "安保", "巡逻", "门岗", "通行", "门禁", "车辆", "出入", "消防", "监控"],
+      "capabilities": [
+        {
+          "key": "os_post_patrol_standard_table",
+          "capability": "岗位值守与巡逻标准表",
+          "required_output": "岗位与巡逻班次标准表（岗位设置、覆盖区域、巡查路线、班次时段、签到方式）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["巡逻路线", "岗位值守", "班次安排", "签到点"],
+          "min_items": 6
+        },
+        {
+          "key": "os_patrol_record_form",
+          "capability": "巡逻与异常处置记录表",
+          "required_output": "巡逻记录与异常复核表单（时间、点位、异常描述、现场处置、上报对象、复核结论字段）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["巡逻记录", "异常复核记录", "巡更记录", "重点部位检查记录"],
+          "min_items": 6
+        },
+        {
+          "key": "os_access_register_form",
+          "capability": "门禁授权与出入登记",
+          "required_output": "门禁授权与出入登记表单（访客登记字段、施工与临时人员核验、授权审批链、放行凭据）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["出入登记", "访客登记", "门禁授权", "放行审批"],
+          "min_items": 6
+        },
+        {
+          "key": "os_vehicle_parking_matrix",
+          "capability": "车辆通行与停放管理规则",
+          "required_output": "车辆出入与停放管理规则表（车道与场地分区、停放规则、高峰时段疏导、违停与占用处置）",
+          "archetype": "MATRIX",
+          "detect": ["车辆停放", "停车管理", "车道疏导", "违停处置"],
+          "min_items": 5
+        },
+        {
+          "key": "os_surveillance_checklist",
+          "capability": "监控与技防设施检查",
+          "required_output": "技防设施点位与检查表（摄像机、报警装置、门禁主机点位，检查项、图像留存核查、故障报修接口）",
+          "archetype": "CHECKLIST",
+          "detect": ["技防设施", "监控点位", "图像留存", "报警装置检查"],
+          "min_items": 6
+        },
+        {
+          "key": "os_first_response_playbook",
+          "capability": "突发事件先期处置",
+          "required_output": "秩序类突发事件先期处置卡（情形识别、第一时间动作、现场警戒与隔离、上报路径、移交与恢复）",
+          "archetype": "EMERGENCY_PLAYBOOK",
+          "detect": ["先期处置", "现场警戒", "隔离带设置", "事件上报路径"],
+          "min_items": 5
+        }
+      ]
+    },
+    {
+      "key": "engineering",
+      "label": "工程与设备设施",
+      "signals": ["设备", "设施", "工程", "维保", "巡检", "维修", "故障", "能耗", "运行记录", "台账"],
+      "capabilities": [
+        {
+          "key": "eq_equipment_ledger",
+          "capability": "设施设备台账与一物一档",
+          "required_output": "设备台账字段清单与示例条目（设备编码、名称类别、型号参数、安装位置、投用状态、责任岗位、维保接口）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["设备台账", "一物一档", "台账字段", "设备编码"],
+          "min_items": 8
+        },
+        {
+          "key": "eq_inspection_standard_table",
+          "capability": "巡检标准与频次",
+          "required_output": "设备巡检标准与频次表（巡检对象、检查项目、判定标准、巡检周期、记录人与异常上送口径）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["巡检标准", "巡检频次", "巡检周期", "巡检项目表"],
+          "min_items": 8
+        },
+        {
+          "key": "eq_maintenance_schedule",
+          "capability": "年度维保计划与外部维保接口",
+          "required_output": "年度维保计划表与外部维保协同接口（设备类别、维保内容、实施周期、配合岗位、复验与关闭方式）",
+          "archetype": "SCHEDULE",
+          "detect": ["维保计划", "年度维保", "维保周期", "外部维保单位"],
+          "min_items": 6
+        },
+        {
+          "key": "eq_fault_response_matrix",
+          "capability": "故障分类与响应矩阵",
+          "required_output": "故障分级响应矩阵（故障类别、级别判定依据、响应责任、处置路径、外部协同条件、关闭与复验要求）",
+          "archetype": "MATRIX",
+          "detect": ["故障分级", "故障分类", "响应矩阵", "故障级别判定"],
+          "min_items": 6
+        },
+        {
+          "key": "eq_repair_work_order_form",
+          "capability": "维修工单模板",
+          "required_output": "报修工单模板与流转记录（报修人、故障描述、接单判断、派工、备件与耗材使用、复验签字、关闭结论）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["报修工单", "维修工单", "工单模板", "派工记录"],
+          "min_items": 8
+        },
+        {
+          "key": "eq_key_equipment_operation_card",
+          "capability": "关键设备应急操作卡",
+          "required_output": "关键设备应急操作卡（设备名称、适用工况、操作前确认、操作顺序、禁止事项、恢复与送电确认）",
+          "archetype": "SOP",
+          "detect": ["应急操作卡", "设备操作卡", "停机操作程序", "恢复供电确认"],
+          "min_items": 6
+        },
+        {
+          "key": "eq_energy_reading_form",
+          "capability": "设备运行与能耗抄录记录",
+          "required_output": "设备运行与能耗抄录记录表（抄录点位、记录参数、抄录频次、数据复核人、异常趋势上送）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["运行记录表", "能耗抄表", "抄录频次", "能耗观察记录"],
+          "min_items": 6
+        }
+      ]
+    },
+    {
+      "key": "environment",
+      "label": "环境与保洁绿化",
+      "signals": ["环境", "保洁", "清洁", "绿化", "垃圾", "消杀", "卫生", "作业标准"],
+      "capabilities": [
+        {
+          "key": "en_cleaning_zone_standard",
+          "capability": "分区保洁标准与频次表",
+          "required_output": "分区保洁标准与频次表（区域等级、作业项目、作业频次、雨天与高峰时段加做安排、检查责任岗位）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["保洁标准", "分区保洁", "作业频次表", "区域等级"],
+          "min_items": 8
+        },
+        {
+          "key": "en_cleaning_work_record_form",
+          "capability": "保洁作业与质量检查记录",
+          "required_output": "保洁作业与质量检查记录表（区域、作业时段、执行人、自查结果、检查人复核、遗留问题结转）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["保洁记录", "作业记录表", "清洁检查记录", "班组自查表"],
+          "min_items": 6
+        },
+        {
+          "key": "en_waste_collection_ledger",
+          "capability": "垃圾清运与分类台账",
+          "required_output": "垃圾收集与清运台账（收集点位、分类类别、清运时段、责任岗位、外运交接与去向核对）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["垃圾清运", "垃圾分类台账", "清运记录", "收集点位"],
+          "min_items": 6
+        },
+        {
+          "key": "en_greening_annual_calendar",
+          "capability": "绿化养护年历",
+          "required_output": "绿化养护年度作业日历（养护对象、修剪与施肥与浇灌安排、季节性病虫害防范、验收方式）",
+          "archetype": "SCHEDULE",
+          "detect": ["绿化养护", "养护年历", "修剪安排", "补植计划"],
+          "min_items": 6
+        },
+        {
+          "key": "en_pest_control_schedule",
+          "capability": "消杀计划与实施记录",
+          "required_output": "消杀作业计划与实施记录（作业区域、靶生物类别、药剂与器械、作业时段、人员安全防护、效果复查）",
+          "archetype": "SCHEDULE",
+          "detect": ["消杀计划", "消杀记录", "药剂使用记录", "鼠饵点位"],
+          "min_items": 6
+        },
+        {
+          "key": "en_material_tool_checklist",
+          "capability": "物料与机具配置",
+          "required_output": "保洁物料与机具配置清单（品类、适用区域、配置口径、存放与领用责任、设备完好核查项）",
+          "archetype": "CHECKLIST",
+          "detect": ["物料配置", "机具配置", "清洁剂清单", "领用记录"],
+          "min_items": 5
+        }
+      ]
+    },
+    {
+      "key": "quality",
+      "label": "品质与考核",
+      "signals": ["品质", "质量", "考核", "满意度", "评分", "整改", "持续改进", "复盘"],
+      "capabilities": [
+        {
+          "key": "qu_inspection_scoring_table",
+          "capability": "品质检查评分表",
+          "required_output": "分专业品质检查评分表（检查项、评分标准、扣分判定、检查层级、被检查岗位确认栏）",
+          "archetype": "KPI_TABLE",
+          "detect": ["评分表", "品质检查表", "扣分判定", "检查评分标准"],
+          "min_items": 8
+        },
+        {
+          "key": "qu_nonconformity_closure_list",
+          "capability": "不合格项整改闭环清单",
+          "required_output": "不合格项整改闭环清单（问题描述、级别、责任岗位、整改措施、完成时限口径、复查结果、关闭结论）",
+          "archetype": "CHECKLIST",
+          "detect": ["整改闭环", "不合格项", "分级问题清单", "复查关闭"],
+          "min_items": 6
+        },
+        {
+          "key": "qu_satisfaction_survey_plan",
+          "capability": "满意度与第三方测评安排",
+          "required_output": "满意度测评实施方案（测评对象与样本构成、组织频次、指标口径、结果反馈与改进接口）",
+          "archetype": "SOP",
+          "detect": ["满意度测评", "满意度调查", "第三方测评", "调查问卷"],
+          "min_items": 6
+        },
+        {
+          "key": "qu_kpi_data_definition",
+          "capability": "考核指标与数据口径",
+          "required_output": "服务考核指标与数据口径表（指标名称、指标定义、数据来源台账、统计周期、责任岗位、达标判定方式）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["数据口径", "指标定义", "考核口径", "统计周期"],
+          "min_items": 6
+        },
+        {
+          "key": "qu_inspection_plan_schedule",
+          "capability": "品质巡检计划与检查层级",
+          "required_output": "品质巡检计划与检查层级安排（班组自查、专业检查、跨专业联合检查的覆盖范围、组织岗位与结果报送）",
+          "archetype": "SCHEDULE",
+          "detect": ["品质巡检计划", "检查层级", "联合检查", "月度检查安排"],
+          "min_items": 5
+        },
+        {
+          "key": "qu_trend_review_register",
+          "capability": "问题趋势复盘与改进台账",
+          "required_output": "问题趋势分析与改进台账（问题类别、发生频次趋势、原因判断、改进动作、效果验证与规则更新）",
+          "archetype": "RISK_REGISTER",
+          "detect": ["趋势分析", "改进清单", "复盘纪要", "原因分析"],
+          "min_items": 5
+        }
+      ]
+    },
+    {
+      "key": "emergency",
+      "label": "应急与预案",
+      "signals": ["应急", "突发事件", "预案", "演练", "消防", "防汛", "联动", "事件"],
+      "capabilities": [
+        {
+          "key": "em_tiered_response_playbook",
+          "capability": "分级响应流程卡",
+          "required_output": "事件分级响应流程卡（分级判定条件、启动岗位、指挥权移交、处置节点、外部求助、恢复与关闭）",
+          "archetype": "EMERGENCY_PLAYBOOK",
+          "detect": ["分级响应", "事件分级", "响应流程卡", "预案启动条件"],
+          "min_items": 6
+        },
+        {
+          "key": "em_org_responsibility_matrix",
+          "capability": "应急组织与岗位职责",
+          "required_output": "应急组织架构与岗位职责表（指挥组、专业处置组、现场保障组、对外联络组的职责边界与代理顺位）",
+          "archetype": "RESPONSIBILITY_MATRIX",
+          "detect": ["应急组织", "指挥组", "应急职责分工", "现场处置组"],
+          "min_items": 6
+        },
+        {
+          "key": "em_supply_checklist",
+          "capability": "应急物资装备清单与检查",
+          "required_output": "应急物资与装备清单及定期检查表（品类、存放位置、数量核查项、完好性检查、补充与报废登记）",
+          "archetype": "CHECKLIST",
+          "detect": ["应急物资", "物资清单", "装备检查", "存放位置"],
+          "min_items": 6
+        },
+        {
+          "key": "em_drill_plan_and_evaluation",
+          "capability": "演练计划与评估表",
+          "required_output": "演练计划与演练评估表（演练场景、参演岗位、流程节点、评估项、暴露问题与改进验证）",
+          "archetype": "SCHEDULE",
+          "detect": ["演练计划", "演练记录", "演练评估", "参演岗位"],
+          "min_items": 6
+        },
+        {
+          "key": "em_duty_reporting_flow",
+          "capability": "值班安排与信息报送路径",
+          "required_output": "应急值班与信息报送流程（值班层级、报送对象、报送节点与内容要素、外部单位联动接口）",
+          "archetype": "PROCESS",
+          "detect": ["信息报送", "值班表", "报送路径", "事件报告内容"],
+          "min_items": 5
+        },
+        {
+          "key": "em_scenario_plan_matrix",
+          "capability": "分场景专项预案对照",
+          "required_output": "专项预案清单与适用场景对照表（火灾、供电中断、水患、电梯困人、极端天气等场景与牵头专业、资源接口）",
+          "archetype": "MATRIX",
+          "detect": ["专项预案", "预案清单", "电梯困人", "断电处置"],
+          "min_items": 6
+        }
+      ]
+    },
+    {
+      "key": "staffing",
+      "label": "组织与人员",
+      "signals": ["组织", "人员", "岗位", "排班", "培训", "考核", "职责", "编制", "服务时间"],
+      "capabilities": [
+        {
+          "key": "st_responsibility_interface_matrix",
+          "capability": "岗位职责与接口矩阵",
+          "required_output": "岗位职责与跨专业接口矩阵（岗位、核心职责事项、协同接口、汇报关系、升级对象）",
+          "archetype": "RESPONSIBILITY_MATRIX",
+          "detect": ["职责矩阵", "接口矩阵", "职责分工表", "责任界面表"],
+          "min_items": 6
+        },
+        {
+          "key": "st_shift_relief_schedule",
+          "capability": "排班与顶岗方案",
+          "required_output": "分岗位排班表与缺岗顶岗方案（班次、覆盖时段、峰值与专项任务安排、顶岗顺位、交接班要求）",
+          "archetype": "SCHEDULE",
+          "detect": ["排班表", "顶岗", "交接班", "班次设置"],
+          "min_items": 6
+        },
+        {
+          "key": "st_training_curriculum_table",
+          "capability": "培训课程与课时安排",
+          "required_output": "分岗位培训课程与课时安排表（课程名称、培训对象、课时、组织岗位、考核与复训触发条件）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["培训课程", "课时", "培训计划表", "上岗培训"],
+          "min_items": 6
+        },
+        {
+          "key": "st_assessment_record_table",
+          "capability": "岗位履职考核与记录",
+          "required_output": "岗位履职考核表与考核记录（考核项、评分口径、检查频次、结果反馈、辅导与复训闭环）",
+          "archetype": "KPI_TABLE",
+          "detect": ["履职考核", "考核记录", "考核表", "复训记录"],
+          "min_items": 6
+        },
+        {
+          "key": "st_headcount_deployment_table",
+          "capability": "人员编制与到位计划",
+          "required_output": "岗位编制与进场到位计划表（岗位、编制口径、到位次序、替岗资源、到岗确认与登记方式）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["人员编制", "岗位设置表", "到位计划", "到岗确认"],
+          "min_items": 6
+        }
+      ]
+    },
+    {
+      "key": "handover",
+      "label": "进场移交与收尾承诺",
+      "signals": ["进场", "交接", "移交", "里程碑", "资料", "档案", "退场", "承诺", "验收", "报告"],
+      "capabilities": [
+        {
+          "key": "hd_entry_inspection_checklist",
+          "capability": "进场承接查验清单",
+          "required_output": "承接查验清单与缺项记录（查验部位、查验内容、判定依据、遗留问题、责任归属、复验结论）",
+          "archetype": "CHECKLIST",
+          "detect": ["承接查验", "查验清单", "缺项记录", "遗留问题清单"],
+          "min_items": 8
+        },
+        {
+          "key": "hd_document_handover_register",
+          "capability": "资料与档案移交清单",
+          "required_output": "资料与档案移交清单（资料类别、载体形式、移交方与接收方、核对结果、签收与归档字段）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["移交清单", "资料移交", "档案目录", "签收记录"],
+          "min_items": 7
+        },
+        {
+          "key": "hd_mobilization_milestone_schedule",
+          "capability": "进场开办与启动里程碑",
+          "required_output": "进场开办工作倒排计划与启动确认表（工作项、责任岗位、依赖条件、完成标志、启动确认事项）",
+          "archetype": "SCHEDULE",
+          "detect": ["进场计划", "开办准备", "启动确认", "倒排计划"],
+          "min_items": 6
+        },
+        {
+          "key": "hd_deliverable_catalogue",
+          "capability": "履约成果文件目录",
+          "required_output": "履约成果文件目录与提交接口（文件名称、形成周期、编制岗位、提交对象、确认与归档方式）",
+          "archetype": "STANDARD_TABLE",
+          "detect": ["成果目录", "成果文件", "文件清单", "归档方式"],
+          "min_items": 6
+        },
+        {
+          "key": "hd_periodic_report_template",
+          "capability": "例行管理报告模板",
+          "required_output": "例行管理报告模板与报送安排（报告章节、数据来源台账、报送对象、反馈处理与事项跟踪）",
+          "archetype": "FORM_TEMPLATE",
+          "detect": ["报告模板", "管理报告", "报送安排", "例会纪要"],
+          "min_items": 6
+        },
+        {
+          "key": "hd_exit_transition_plan",
+          "capability": "退场交接与平稳收尾",
+          "required_output": "退场交接计划（交接事项清单、资产与资料归还、在办事项结转、服务连续性安排、最终确认签字）",
+          "archetype": "PROCESS",
+          "detect": ["退场交接", "撤场", "事项结转", "资产归还"],
+          "min_items": 6
+        },
+        {
+          "key": "hd_commitment_boundary_register",
+          "capability": "承诺边界与待澄清事项登记",
+          "required_output": "承诺边界与待澄清事项登记表（事项描述、已确认事实、条件性方法、影响章节、澄清责任与确认方式）",
+          "archetype": "RISK_REGISTER",
+          "detect": ["待澄清事项", "未确认事项", "影响章节", "澄清责任"],
+          "min_items": 5
+        }
+      ]
+    }
+  ]
+}

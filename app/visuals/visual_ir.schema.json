@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mmf:visual-ir:v1",
+  "title": "MMF Canonical Visual IR v1",
+  "type": "object",
+  "required": ["schema_version", "visual_id", "section_id", "kind", "title", "sources", "nodes", "relationships", "evidence"],
+  "properties": {
+    "schema_version": {"const": "mmf-visual-ir-v1"},
+    "visual_id": {"type": "string", "minLength": 1},
+    "section_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["ORG_CHART", "PROCESS_FLOW", "RELATIONSHIP_DIAGRAM", "RESPONSIBILITY_MATRIX_VISUAL", "TIMELINE", "MILESTONE_GANTT"]},
+    "title": {"type": "string", "minLength": 1},
+    "caption": {"type": "string"},
+    "reviewed_projection": {"type": "boolean"},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "sources": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/source"}},
+    "nodes": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/item"}},
+    "relationships": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/item"}, {
+      "required": ["from", "to", "relation"], "properties": {
+        "from": {"type": "string"}, "to": {"type": "string"},
+        "relation": {"enum": ["REPORTS_TO", "DIRECTS", "NEXT", "COORDINATES", "RETURNS_TO", "DEPENDS_ON"]}
+      }
+    }]}},
+    "sequence": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+    "roles": {"type": "array", "items": {"$ref": "#/$defs/item"}},
+    "responsibilities": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/item"}, {
+      "required": ["cells"], "properties": {"cells": {"type": "object", "additionalProperties": {"$ref": "#/$defs/item"}}}
+    }]}},
+    "groups": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/item"}, {
+      "required": ["members"], "properties": {"members": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}}
+    }]}},
+    "time_basis": {"enum": ["ORDINAL_PHASES", "CONFIRMED_DATES"]},
+    "layout_hints": {"type": "object", "description": "Presentation-only positions and orthogonal routes; cannot assert new business semantics"}
+  },
+  "$defs": {
+    "evidence": {"type": "array", "minItems": 1, "items": {
+      "type": "object", "required": ["source_id", "pointer", "quote", "span"],
+      "properties": {"source_id": {"type": "string"}, "pointer": {"type": "string"},
+        "quote": {"type": "string", "minLength": 1},
+        "span": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer", "minimum": 0}}
+      }
+    }},
+    "item": {"type": "object", "required": ["id", "label", "evidence"],
+      "properties": {"id": {"type": "string", "minLength": 1}, "label": {"type": "string", "minLength": 1},
+        "evidence": {"$ref": "#/$defs/evidence"}, "reviewed_projection": {"type": "boolean"},
+        "display_text": {"type": "string"}, "detail": {"type": "string"}, "condition": {"type": "string"},
+        "role": {"type": "string"}, "responsibility": {"type": "string"}, "branch": {"type": "boolean"}
+      }
+    },
+    "source": {"type": "object", "required": ["source_id", "cu_id", "source_kind", "file", "sha256", "snapshot", "snapshot_digest"],
+      "properties": {"source_id": {"type": "string"}, "cu_id": {"type": "string"},
+        "source_kind": {"enum": ["TENDER", "ACCEPTED_FACT", "GENERATED_PROPOSED_METHOD", "APPROVED_SERVICE_DESIGN"]},
+        "file": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "snapshot_digest": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "snapshot": {"type": "object"},
+        "identity_pointer": {"type": "string"}
+      }
+    }
+  }
+}

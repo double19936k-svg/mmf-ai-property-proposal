@@ -1,0 +1,2 @@
+# Optional offline DOCX visual runtime. Existing nonvisual assembly is unchanged.
+Pillow>=10

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .base import AIProvider, ProviderError, ProviderUnavailableError, normalize_generation, normalize_recommendation, parse_json_object, write_json
+from .base import AIProvider, ProviderError, ProviderUnavailableError, normalize_generation, normalize_recommendation, parse_provider_payload, write_json
 
 
 class LocalCLIProvider(AIProvider):
@@ -54,7 +54,7 @@ class LocalCLIProvider(AIProvider):
         except json.JSONDecodeError:
             outer = {"text": raw}
             candidate = raw
-        result, repair = parse_json_object(candidate, set(request.get("required_keys", [])))
+        result, repair = parse_provider_payload(request, candidate, set(request.get("required_keys", [])))
         metadata = self._task_metadata(request["task_id"], serialization_repair=repair or {"applied": False})
         write_json(task_dir / "provider_raw_envelope.json", outer)
         write_json(task_dir / "provider_structured_output.json", result)

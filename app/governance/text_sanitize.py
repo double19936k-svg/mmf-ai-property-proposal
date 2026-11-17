@@ -38,9 +38,12 @@ def replace_once(text: str, old: str, new: str) -> str:
 
 def replace_outsourcing_phrase(text: str) -> str:
     value = str(text or "")
-    if _WAWEI_ALREADY.search(value):
-        return value
-    return re.sub(r"(?<!如采用)(?<!如经确认使用)外委(?!方式)", "如采用外委方式", value)
+    def replace(match):
+        prefix = re.split(r"[。；，\n]", value[:match.start()])[-1]
+        if re.search(r"(?:不假定|不预设)(?:存在|任何|实际采用)*$", prefix):
+            return match.group(0)
+        return "如采用外委方式"
+    return re.sub(r"(?<!如采用)(?<!如经确认使用)外委(?!方式)", replace, value)
 
 
 def apply_replacements_idempotent(text: str, replacements: dict[str, str]) -> str:

@@ -202,7 +202,9 @@ class FastPerformanceGovernanceTests(unittest.TestCase):
             initial = int(word.get("INITIAL_GENERATION_CALLS") or 0)
             self.assertGreaterEqual(logical, 8)
             self.assertGreaterEqual(batches, 1)
-            self.assertEqual(initial, batches)
+            # V1.1 Phase 2：Volume 分批执行后每卷独立规划批次，批次聚合口径变为
+            # initial >= batches（每个批次至少一次初次调用）；压缩比仍由审计承载。
+            self.assertGreaterEqual(initial, batches)
             self.assertGreater(word.get("CALL_REDUCTION_RATIO") or 0, 0)
             self.assertGreater(word.get("INITIAL_SECTIONS_PER_CALL") or 0, 1)
             self.assertEqual(int(word.get("SECTION_REPAIR_CALLS") or 0), 0)

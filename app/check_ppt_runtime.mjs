@@ -3,9 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { modulePath } from './windows_paths.mjs';
 
 try {
-  const modules = path.resolve(process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules'));
+  const modules = path.resolve(modulePath(process.argv[2] || path.join(path.dirname(fileURLToPath(import.meta.url)), 'node_modules')));
   const pkg = path.join(modules, '@oai', 'artifact-tool', 'package.json');
   if (!fs.existsSync(pkg)) throw new Error('MISSING_PPT_PACKAGE: @oai/artifact-tool');
   const manifest = JSON.parse(fs.readFileSync(pkg, 'utf8'));

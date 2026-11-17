@@ -4,7 +4,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
+from .content_engineering import classify_technical_scope, is_excluded_technical_scope
 from .planner import now_iso, write_json
+from .manual_brief import parse_manual_brief
 
 
 FULL_PROPOSAL_SCENARIOS = {"完整物业服务方案", "投标全套服务方案"}
@@ -30,15 +32,12 @@ def ensure_requirement_pack(run_dir: Path, brief: dict[str, Any]) -> Path:
             "gross_area": {"value": brief.get("area") or ""},
         },
         "service_scope": {"included": [], "excluded": [], "deprioritized": [], "conditional": []},
-        "requirements": [{
-            "requirement_id": "REQ-0001",
-            "normalized_requirement": text[:800],
-            "domain": "other",
-            "mandatory_level": "MUST",
-            "confirmation_status": "CONFIRMED",
-        }],
+        **parse_manual_brief(text, split_commas=str(brief.get("medium")).upper() != "PPT"),
         "confirmation": {"ready_for_brief_seed": True},
     }
+    if str(brief.get("medium")).upper() == "PPT" and brief.get("scenario") == "完整物业服务方案":
+        from .ppt_service import VERSION
+        pack["ppt_service_contract"] = VERSION
     target = run_dir / "requirement_pack.json"
     write_json(target, pack)
     return target
@@ -104,6 +103,8 @@ def build_canonical_requirement_map(pack: dict[str, Any], matrix: dict[str, Any]
         "matrix": deepcopy(matrix.get("matrix", [])),
         "coverage_summary": deepcopy(matrix.get("coverage_summary", {})),
         "excluded_requirements": deepcopy(matrix.get("excluded_requirements", [])),
+        # §39：生成需求包必须自带"哪些行离开了需求分母"，否则下游又把 scope 前集合当分母。
+        "requirement_denominator_authority": deepcopy(matrix.get("requirement_denominator_authority", {})),
         "created_at": now_iso(),
     }
 
@@ -115,6 +116,8 @@ def build_canonical_project_brief(pack: dict[str, Any], brief: dict[str, Any], a
         if row.get("mandatory_level") == "MUST"
         and row.get("tender_content_class") not in {"BID_FORM_TEMPLATE", "LEGAL_FORM_TEMPLATE", "AUTHORIZATION_TEMPLATE", "ADMINISTRATIVE_TEMPLATE"}
         and not row.get("excluded_from_solution_body")
+        # P0-0：项目简报会进 Provider Context，MUST 条款里的报价/资格/程序类同样不得带入。
+        and not is_excluded_technical_scope(classify_technical_scope(row))
     ][:40]
     return {
         "schema_version": "canonical-project-brief-v0.1",
@@ -129,6 +132,8 @@ def build_canonical_project_brief(pack: dict[str, Any], brief: dict[str, Any], a
         "excluded_scope": analysis.get("excluded_scope", []),
         "fact_boundary": brief.get("fact_boundary") or "表单中的全部数字均为current_project_fact；历史KU数字不得迁移。",
         "requirement_pack_id": pack.get("pack_id") or brief.get("requirement_pack_id"),
+        "writing_constraints": deepcopy(pack.get("writing_constraints", [])),
+        "reference_material": deepcopy(pack.get("reference_material", [])),
         "created_at": now_iso(),
     }
 

@@ -1,0 +1,5 @@
+# MMF dev/test environment (not used by the app runtime)
+# Install: python -m venv runtime/dev_python && runtime/dev_python/Scripts/python.exe -m pip install -r requirements-dev.txt
+# Run:     runtime/dev_python/Scripts/python.exe -m pytest tests -q
+-r app/requirements.txt
+pytest>=9

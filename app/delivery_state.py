@@ -10,6 +10,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from qa_severity import (
+    CLASS_FALSE_POSITIVE, CLASS_NEEDS_REVIEW, CLASS_TRUE_BLOCK, CLASS_WARNING,
+)
+
 QA_PASS = "PASS"
 QA_PASS_AFTER_REPAIR = "PASS_AFTER_REPAIR"
 QA_WARNINGS_REMAIN = "WARNINGS_REMAIN"
@@ -37,6 +41,8 @@ REVIEW_RULES = {
     "UNSUPPORTED_SYSTEM_CAPABILITY",
     "BROKEN_CROSS_REFERENCE",
     "EMPTY_HEADING_BLOCK",
+    "THIN_HEADING_BODY",
+    "HEADING_WITHOUT_SUBSTANTIVE_BODY",
     "INTERNAL_SECTION_ID",
     "BROKEN_QUOTE_SERIALIZATION",
     "QUOTE_BALANCE_QA",
@@ -44,6 +50,7 @@ REVIEW_RULES = {
     "CG-001",
     "CG-002",
     "CG-005",
+    "UNSUPPORTED_BIDDER_CLAIM",
 }
 PHYSICAL_RULES = {"FINAL_ARTIFACT_MISSING"}
 SCOPE_BY_RULE = {
@@ -56,6 +63,8 @@ SCOPE_BY_RULE = {
     "INTERNAL_GOVERNANCE_TONE": "sentence",
     "BROKEN_FLOW_SERIALIZATION": "paragraph",
     "EMPTY_HEADING_BLOCK": "section",
+    "THIN_HEADING_BODY": "section",
+    "HEADING_WITHOUT_SUBSTANTIVE_BODY": "section",
     "INTERNAL_SECTION_ID": "sentence",
     "BROKEN_QUOTE_SERIALIZATION": "artifact",
     "QUOTE_BALANCE_QA": "artifact",
@@ -69,10 +78,13 @@ ISSUE_LABELS = {
     "UNSUPPORTED_SYSTEM_CAPABILITY": "存在尚未在项目资料中确认的系统能力表述",
     "BROKEN_CROSS_REFERENCE": "章节交叉引用不完整",
     "EMPTY_HEADING_BLOCK": "部分标题下缺少正文",
+    "THIN_HEADING_BODY": "部分标题下的正文过短",
+    "HEADING_WITHOUT_SUBSTANTIVE_BODY": "部分标题下只有待填写表格",
     "INTERNAL_SECTION_ID": "残留内部章节编号",
     "BROKEN_QUOTE_SERIALIZATION": "部分引号格式可能影响阅读",
     "QUOTE_BALANCE_QA": "部分引号格式可能影响阅读",
     "PROJECT_FACT_CONSISTENCY": "局部项目事实存在疑点",
+    "UNSUPPORTED_BIDDER_CLAIM": "投标人能力陈述缺少已核验的证明材料",
     "CONDITIONAL_REWRITE_GRAMMAR": "个别措辞仍不够自然",
     "INTERNAL_GOVERNANCE_TONE": "个别表述偏内部口径",
     "BROKEN_FLOW_SERIALIZATION": "个别流程符号不完整",
@@ -80,6 +92,7 @@ ISSUE_LABELS = {
     "CLIENT_ARTIFACT_INTERNAL_META": "个别内部标记残留",
     "CG-001": "存在尚未确认的时长或频次",
     "LF-002": "部分章节内容仍不完整",
+    "FAQ-008": "有一段文字和前面重复",
 }
 MANUAL_ACTIONS = {
     "UNSUPPORTED_COMPLETION_CLAIM": "请人工确认该完成或附件表述，或改为待提交材料说明。",
@@ -87,8 +100,11 @@ MANUAL_ACTIONS = {
     "UNSUPPORTED_NUMERIC_THRESHOLD": "请删除未确认数字，或改为双方确认后的安排。",
     "BROKEN_CROSS_REFERENCE": "请改为可读的专项安排名称，避免空泛交叉引用。",
     "EMPTY_HEADING_BLOCK": "请为该标题补充正文，或删除空标题。",
+    "THIN_HEADING_BODY": "请补充该标题下的具体做法、频次与记录方式。",
+    "HEADING_WITHOUT_SUBSTANTIVE_BODY": "请把该处占位表格补齐为可填写表单，或改为正文说明。",
     "BROKEN_QUOTE_SERIALIZATION": "请检查该段引号在 Word / WPS 中的显示。",
     "PROJECT_FACT_CONSISTENCY": "请核对项目面积、名称等已确认事实。",
+    "UNSUPPORTED_BIDDER_CLAIM": "请补充有效证明材料，或将该项保留为待投标人确认。",
 }
 INTERNAL_CODE = re.compile(r"\b(?:CG|LF|QR|FAQ|RP|ART)-[0-9]{2,4}\b|\b[A-Z]{3,}(?:_[A-Z0-9]+){1,}\b")
 LAST_VALID_DIR = "last_valid_artifact"
@@ -104,13 +120,16 @@ def _rule_id(row: dict[str, Any]) -> str:
 
 
 def remaining_issues(*reports: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """§32：先按 qa_class 分类，再决定哪些行进入 Delivery。FALSE_POSITIVE 只留档不计入。"""
     rows: list[dict[str, Any]] = []
     for report in reports:
         if not report:
             continue
         for key in ("findings", "violations"):
             for row in report.get(key) or []:
-                if row.get("severity") in {"BLOCK", "AUTO_REPAIR", "WARNING"}:
+                if str(row.get("qa_class") or "") == CLASS_FALSE_POSITIVE:
+                    continue
+                if row.get("severity") in {"BLOCK", "AUTO_REPAIR", "WARNING", "NEEDS_REVIEW"}:
                     rows.append(row)
     unique: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
@@ -191,8 +210,36 @@ def _band_for_rule(rule: str) -> str:
     return "mild"
 
 
+def _band_for_row(row: dict[str, Any]) -> str:
+    """§32：Delivery 只看分类结果。没有 qa_class 的旧报告（compliance / document_qa）仍按规则名定档。
+
+    TRUE_BLOCK 与 NEEDS_REVIEW 都落到 review 档 —— 不是把 BLOCK 降级：AGENTS.md 要求
+    QA 与 Delivery 解耦、局部失败不得隐藏完整文件，所以两者都出文件但都进待复核清单。
+    两者的区别记在 true_block_count 与报告的 qa_classification 里，不靠扣文件表达。
+    """
+    qa_class = str(row.get("qa_class") or "")
+    if qa_class == CLASS_FALSE_POSITIVE:
+        return "ignored"
+    if qa_class in {CLASS_TRUE_BLOCK, CLASS_NEEDS_REVIEW}:
+        return "review"
+    if qa_class == CLASS_WARNING:
+        return "mild"
+    return _band_for_rule(_rule_id(row))
+
+
 def public_issue_label(rule: str) -> str:
-    return ISSUE_LABELS.get(rule) or "存在建议人工复核的内容"
+    return ISSUE_LABELS.get(rule) or "有一处内容需要你看一下"
+
+
+def _plain_excerpt(rule: str, excerpt: str) -> str:
+    text = str(excerpt or "")
+    if "duplicate of artifact" in text or re.search(r"artifact\.(?:paragraphs|sections|tables)\[", text):
+        return "这里有一段和前面相同的文字，打开文稿后删去重复的那段即可。"
+    if re.search(r"[A-Za-z_]{5,}\[", text):
+        return "这里有一句写得不完整。请改成谁在什么时候做什么，不要保留半句话。"
+    if rule == "UNSUPPORTED_COMPLETION_CLAIM" and text:
+        return f"这句话把尚未发生的事写成了已经完成。原句片段：{text}"
+    return strip_internal_codes(text)
 
 
 def strip_internal_codes(text: str) -> str:
@@ -213,12 +260,12 @@ def build_review_summary(
     rows = []
     for index, row in enumerate(issues, start=1):
         rule = _rule_id(row)
-        excerpt = str(row.get("excerpt") or row.get("text") or row.get("issue") or "")[:180]
+        excerpt = _plain_excerpt(rule, str(row.get("excerpt") or row.get("text") or row.get("issue") or "")[:180])
         rows.append({
             "issue_id": f"REV-{index:03d}",
             "issue_type": rule,
             "public_label": public_issue_label(rule),
-            "severity": "review" if _band_for_rule(rule) != "mild" else "warning",
+            "severity": "review" if _band_for_row(row) != "mild" else "warning",
             "section": str(row.get("path") or row.get("section") or ""),
             "page": row.get("page"),
             "excerpt": excerpt,
@@ -227,6 +274,15 @@ def build_review_summary(
             "remaining_problem": excerpt or public_issue_label(rule),
             "recommended_manual_action": MANUAL_ACTIONS.get(rule) or "请结合项目资料人工确认后修改。",
             "scope": issue_scope(row),
+            "display": str(row.get("display") or ""),
+            "slide_index": row.get("slide_index"),
+            "slide_title": str(row.get("slide_title") or ""),
+            "component_label": str(row.get("component_label") or ""),
+            "full_sentence": str(row.get("full_sentence") or excerpt),
+            "fragment": str(row.get("fragment") or excerpt),
+            "section_no": row.get("section_no"),
+            "section_title": str(row.get("section_title") or ""),
+            "para_index": row.get("para_index"),
         })
     return {
         "schema_version": "qa-review-summary-v0.1",
@@ -271,6 +327,8 @@ def classify_fail_soft(
     renderer_failed: bool = False,
     cancelled: bool = False,
     repaired: bool = False,
+    artifact: dict[str, Any] | None = None,
+    medium: str = "",
 ) -> dict[str, Any]:
     path = Path(artifact_path) if artifact_path else None
     physical = renderer_failed or artifact_physically_invalid(path)
@@ -278,7 +336,10 @@ def classify_fail_soft(
     if findings is None:
         issues = remaining_issues(artifact_qa, commitment, compliance)
     else:
-        issues = list(findings)
+        issues = [row for row in findings
+                  if str(row.get("qa_class") or "") != CLASS_FALSE_POSITIVE]
+    from governance.review_warnings import prepare_review_issues
+    issues = prepare_review_issues(issues, artifact=artifact, medium=medium)
     if cancelled:
         available = bool(path and path.is_file() and not artifact_physically_invalid(path))
         delivery = DELIVERY_CANCELLED
@@ -298,7 +359,7 @@ def classify_fail_soft(
     if "physical" in bands and not path:
         summary = build_review_summary(issues, repair_attempts=repair_attempts)
         return _result(QA_CRITICAL, DELIVERY_TECHNICAL, False, issues, summary, repair_attempts, path)
-    if any(_band_for_rule(_rule_id(row)) == "review" for row in issues):
+    if any(_band_for_row(row) == "review" for row in issues):
         qa_status = QA_REVIEW_REQUIRED
         delivery = DELIVERY_REVIEW
     elif issues:
@@ -336,6 +397,7 @@ def _result(
         "qa_status": qa_status,
         "delivery_status": delivery,
         "artifact_available": available,
+        "true_block_count": sum(1 for row in issues if str(row.get("qa_class") or "") == CLASS_TRUE_BLOCK),
         "public_message": message,
         "review_count": summary.get("issue_count") or 0,
         "qa_review_summary": summary,

@@ -10,13 +10,15 @@ STATUS_LABELS = {
     "not_configured": "未配置",
     "authentication_required": "需要认证",
     "unavailable": "不可用",
+    "not_tested": "待测试",
 }
 
 
 def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -> dict[str, Any]:
     settings = settings or {}
     name = str(row.get("provider_name") or "")
-    ptype = str(row.get("provider_type") or "")
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    ptype = str(row.get("provider_type") or metadata.get("provider_type") or "")
     raw = str(row.get("connection_status") or row.get("status") or "")
     message = str(row.get("message") or "")
     qualification = str(row.get("qualification_status") or "")
@@ -24,7 +26,15 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
     user_status = "not_configured"
     user_message = message
 
-    if name == "kimi_moonshot":
+    if name == "zcode_cn":
+        display = "ZCode 国内账户（实验）"
+        user_status = "connected" if row.get("available") else "not_tested"
+        user_message = message or "请在ZCode国内账户卡片中登录并选择模型。"
+    elif name == "qoder_account":
+        display = str(row.get("display_name") or "Qoder账户（实验）")
+        user_status = "connected" if row.get("available") else "authentication_required" if raw == "authentication_required" else "not_tested"
+        user_message = message or "请在连接卡片中连接Qoder并选择模型。"
+    elif name == "kimi_moonshot":
         display = "Kimi / Moonshot"
         if row.get("available"):
             user_status = "connected"
@@ -35,9 +45,16 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
         elif any(token in f"{raw} {message}".lower() for token in ("auth", "401", "unauthorized")):
             user_status = "authentication_required"
             user_message = "Kimi密钥无效或需要重新填写"
+        elif raw in {"not_tested", "pending_test"}:
+            user_status = "not_tested"
+            user_message = "Kimi已配置，请先测试连接"
         else:
-            user_status = "connected"
-            user_message = "Kimi已配置，可直接用于生成"
+            user_status = "unavailable"
+            user_message = message or "Kimi连接测试未通过"
+    elif ptype == "cursor_account":
+        user_status = ("connected" if row.get("available") else
+                       "not_configured" if raw == "not_connected" else "authentication_required")
+        user_message = message or "请重新检查 Cursor 官方授权。"
     elif name == "mock":
         user_status = "connected" if row.get("available") else "not_configured"
         display = "Mock（流程测试）"
@@ -87,9 +104,12 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
         elif any(token in f"{raw} {message}".lower() for token in ("auth", "401", "unauthorized")):
             user_status = "authentication_required"
             user_message = "智谱密钥无效或需要重新填写"
+        elif raw in {"not_tested", "pending_test"}:
+            user_status = "not_tested"
+            user_message = "智谱GLM已配置，请先测试连接"
         else:
-            user_status = "connected"
-            user_message = "智谱GLM已配置，可直接用于生成"
+            user_status = "unavailable"
+            user_message = message or "智谱GLM连接测试未通过"
     elif name == "qwen_modelstudio":
         display = "千问 Model Studio"
         if row.get("available"):
@@ -101,9 +121,12 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
         elif any(token in f"{raw} {message}".lower() for token in ("auth", "401", "unauthorized")):
             user_status = "authentication_required"
             user_message = "千问密钥无效或需要重新填写"
+        elif raw in {"not_tested", "pending_test"}:
+            user_status = "not_tested"
+            user_message = "千问已配置，请先测试连接"
         else:
-            user_status = "connected"
-            user_message = "千问已配置，可直接用于生成"
+            user_status = "unavailable"
+            user_message = message or "千问连接测试未通过"
     else:
         if row.get("available"):
             user_status = "connected"
@@ -115,9 +138,9 @@ def public_status(row: dict[str, Any], settings: dict[str, Any] | None = None) -
     selectable = (
         ptype != "image_generation"
         and bool(row.get("configured") or row.get("available"))
-        and user_status not in {"authentication_required", "unavailable"}
+        and user_status not in {"authentication_required", "unavailable", "not_tested"}
     )
-    if name == "grok_build":
+    if name == "grok_build" or ptype == "cursor_account":
         selectable = user_status == "connected"
 
     return {

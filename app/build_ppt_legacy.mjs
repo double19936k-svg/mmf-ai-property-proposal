@@ -4,7 +4,8 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
-const runtimeNodeModules = process.env.RUNTIME_NODE_MODULES;
+import { modulePath } from "./windows_paths.mjs";
+const runtimeNodeModules = modulePath(process.env.RUNTIME_NODE_MODULES || "");
 if (!runtimeNodeModules) throw new Error("RUNTIME_NODE_MODULES is required. Run install.ps1 first.");
 const require = createRequire(import.meta.url);
 const artifactEntry = require.resolve("@oai/artifact-tool", { paths: [runtimeNodeModules] });

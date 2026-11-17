@@ -57,10 +57,13 @@ class CredentialStore:
         value = self._read_windows(target)
         if value:
             return value, "windows_credential_manager"
-        if env_name and os.environ.get(env_name, "").strip():
-            return os.environ[env_name].strip(), "environment"
+        # An explicit key entered in the current UI session must override an
+        # inherited environment variable. Otherwise a stale machine-level key
+        # silently masks the value the user has just saved.
         if self._session.get(target):
             return self._session[target], "session_only"
+        if env_name and os.environ.get(env_name, "").strip():
+            return os.environ[env_name].strip(), "environment"
         return "", "none"
 
     def set(self, provider_name: str, secret: str) -> dict[str, Any]:

@@ -1,0 +1,2 @@
+# Optional CN edition; separate from the global Qoder SDK and from app requirements.
+qodercn-agent-sdk==1.0.17
