@@ -56,5 +56,8 @@
     "tests/test_mmf006e_r26_fail_soft_delivery.py",
     "tests/test_mmf006e_r27_fast_performance.py"
   ],
-  "last_packed_dist": "D:\YourProject"
+  "last_packed_dist": null,
+  "public_record_date": "2026-11-17",
+  "packaged_dist_rebuilt_on_public_record_date": false,
+  "trace_note": "build_time, build_id and source_hash describe the 2026-09-13 package. That package was not rebuilt on 2026-11-17, and the previous machine path in last_packed_dist has been removed. No SHA256 is recorded because no new package was produced."
 }

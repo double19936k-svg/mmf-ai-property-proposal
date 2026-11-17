@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -13,7 +14,8 @@ import urllib.request
 from pathlib import Path
 
 
-FORBIDDEN = r"D:\YourProject"
+FORBIDDEN = r"D:\ForbiddenRoot"
+USER_PROFILE = re.compile(r"(?i)[A-Za-z]:[\\/]+Users[\\/]+")
 SECRET_MARKERS = (
     "DASHSCOPE_API_KEY=",
     "MOONSHOT_API_KEY=",
@@ -52,11 +54,8 @@ def _scan_text(path: Path) -> list[str]:
         text = path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return hits
-    if FORBIDDEN in text or "YourProject" in text:
-        hits.append(f"forbidden_path:{path}")
-    lowered = text.lower()
-    if "C:\\YourProject" in lowered or "/YourProject" in lowered:
-        hits.append(f"todd_user_path:{path}")
+    if USER_PROFILE.search(text):
+        hits.append(f"user_profile_path:{path}")
     for marker in SECRET_MARKERS:
         if marker.lower() in text.lower() and "example" not in path.name.lower():
             hits.append(f"credential_marker:{path}")
@@ -73,8 +72,7 @@ def _free_port() -> int:
 
 def main() -> int:
     src = Path(__file__).resolve().parents[1]
-    work = Path(r"clean-temporary-directory")
-    work.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="mmf-cleanroom-"))
     pkg = work / "MMF-006E-portable-v0.1"
     results: list[dict] = []
 

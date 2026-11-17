@@ -3,7 +3,7 @@
 Preparation status: `RUN_J_VISUAL_RENDERING_READY_FOR_INDEPENDENT_GATE`.
 The final charter requires an independent PASS before `RUN_J_VISUAL_RENDERING_INDEPENDENT_GATE_VERIFIED`, and only then `RUN_J_MERGE_READY`. Neither later status is claimed by this implementation report. See `RUN_J_FINAL_CHARTER.md` for the frozen gate boundary.
 
-Branch: `run-j-visual`, isolated checkout `D:\YourProject/run-j-visual`, based on `0ec3e9cc107af903652ee2f8ff6509368fa5f2f4`. Delivery HEAD and artifact hashes are recorded in local `runtime/run_j/RUN_J_DELIVERY_REPORT.json` after commit. No mainline merge or Release Ready declaration. Provider calls: **0**.
+Branch: `run-j-visual`, isolated checkout `D:/YourProject/run-j-visual`, based on `0ec3e9cc107af903652ee2f8ff6509368fa5f2f4`. Delivery HEAD and artifact hashes are recorded in local `runtime/run_j/RUN_J_DELIVERY_REPORT.json` after commit. No mainline merge or Release Ready declaration. Provider calls: **0**.
 
 ## Implemented boundary
 

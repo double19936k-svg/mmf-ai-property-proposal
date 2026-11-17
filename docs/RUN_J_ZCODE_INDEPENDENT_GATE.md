@@ -4,12 +4,12 @@ Review only. The user dispatches this command to Zcode. Do not modify code, froz
 
 ## Exact target and output locations
 
-Worktree: D:\YourProject
+Worktree: D:/YourProject/run-j-visual
 
 Branch: run-j-visual, base 0ec3e9cc107af903652ee2f8ff6509368fa5f2f4. Read runtime/run_j/fix_v2/RUN_J_FINAL_FREEZE.json as UTF-8. Its head is the exact review target. Do not review a later HEAD or repair mismatches.
 
 Write ALL reports, scripts, logs, XML, caches and temporary files inside:
-D:\YourProject
+D:/YourProject/run-j-visual/runtime/run_j/agent_outputs/zcode/j2/
 
 Final reports: <output root>/REVIEW.md and REVIEW.json. Do not write at the drive workspace root, repository root, historical zcode_independent_gate, or another Run. Use a fresh child directory for each check. Helpers with Chinese literals must be UTF-8 WITH BOM for PowerShell 5.1, or ASCII only. The supplied runner is ASCII only.
 
@@ -30,13 +30,13 @@ Initialize in the shell; do not save Chinese literals in an ANSI or BOM-less Pow
 
 ```powershell
 $ErrorActionPreference = 'Stop'
-$runJRoot = 'D:\YourProject'
+$runJRoot = 'D:/YourProject/run-j-visual'
 $runJManifest = Join-Path $runJRoot 'runtime/run_j/fix_v2/RUN_J_FINAL_FREEZE.json'
 $runJOutput = Join-Path $runJRoot 'runtime/run_j/agent_outputs/zcode/j2'
 Set-Location -LiteralPath $runJRoot
 $runJFreeze = Get-Content -Raw -Encoding UTF8 -LiteralPath $runJManifest | ConvertFrom-Json -ErrorAction Stop
 $runJPowerShell = 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
-$runJPython = 'C:\YourProject'
+$runJPython = 'python'
 & $runJPython (Join-Path $runJRoot 'tools/verify_run_j_freeze.py') --manifest $runJManifest
 if ($LASTEXITCODE -ne 0) { throw 'Frozen target mismatch.' }
 & $runJPowerShell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $runJRoot 'tools/run_j_gate_checks.ps1') -Manifest $runJManifest -OutputDirectory (Join-Path $runJOutput 'p') -Mode ValidateOnly

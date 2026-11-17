@@ -16,7 +16,7 @@ APP = Path(__file__).resolve().parents[1] / "app"
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 sys.path.insert(0, str(APP))
-LIVE = Path(r"D:\YourProject")
+LIVE = Path(os.environ["MMF_RESUME_FIXTURE"]) if os.environ.get("MMF_RESUME_FIXTURE") else None
 YINFENG = "tender_20261111_134011_73d903"
 
 
@@ -342,7 +342,10 @@ def test_fact_sources():
 
 
 if __name__ == "__main__":
-    test_yinfeng_resume()
+    if LIVE and LIVE.is_dir():
+        test_yinfeng_resume()
+    else:
+        print("SKIP yinfeng resume fixture is not configured")
     test_budget_gate_once()
     test_metrics()
     test_scope_pack_and_docx()

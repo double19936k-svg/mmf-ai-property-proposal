@@ -21,7 +21,7 @@
     "passed": 20,
     "total": 20,
     "ran_at": "2026-09-04T21:24:25+08:00",
-    "package_under_test": "source tree copied to clean-temporary-directory",
+    "package_under_test": "source tree copied to a clean temporary directory",
     "notes": "Fresh run after Grok live-pass persistence, empty grok_executable, and env_check path redaction. qwen_min_config_surface still skips live Qwen."
   },
   "credential_store": "PASS",

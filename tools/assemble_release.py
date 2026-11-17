@@ -177,7 +177,7 @@ def patch_manager(path: Path) -> None:
 
 def patch_bridge(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
-    old = '''    prohibited_root = Path(r"D:\YourProject").resolve()
+    old = '''    prohibited_root = Path(r"D:\\YourProject").resolve()
     if workdir == prohibited_root:
         raise TaskValidationError("The whole property-material root cannot be used as working_directory.")
 '''
@@ -192,23 +192,15 @@ def patch_bridge(path: Path) -> None:
 
 
 def sanitize_copied_text(root: Path) -> None:
-    needles = (
-        "D:\YourProject",
-        "D:\YourProject",
-        "D:\YourProject",
-        r"C:\\YourProject",
-        r"C:\YourProject",
-        "C:\YourProject",
-    )
+    import re
+    user_profile = re.compile(r"(?i)[A-Za-z]:(?:\\\\+|\\+|/)Users(?:\\\\+|\\+|/)")
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in {".json", ".md", ".py", ".html", ".txt"}:
             continue
         if path.name in {"assemble_release.py", "test_cleanroom_deployment.py"}:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        updated = text
-        for needle in needles:
-            updated = updated.replace(needle, "external_workspace")
+        updated = user_profile.sub("C:\\\\YourProject\\\\", text)
         if updated != text:
             path.write_text(updated, encoding="utf-8")
 
