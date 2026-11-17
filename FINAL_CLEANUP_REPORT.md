@@ -124,7 +124,7 @@ API Key 默认进入 Windows 凭证管理器。文档不再说密钥绝对不会
 
 ## 10. 能否冻结 v0.1.1-alpha
 
-远程 main、tag 和 Release 页面已经指向同一套清理后的历史。可以停止本阶段的功能性开发。
+远程 main 与 Release 标签上的用户手册、安全说明已经对齐。可以停止本阶段的功能性开发。
 
 不能把“GitHub 上任何已知旧 SHA 都已消失”说成已经完成。`6a87db8` 仍然能按 SHA 访问，直到 GitHub 自己回收不可达对象。
 
@@ -140,6 +140,34 @@ API Key 默认进入 Windows 凭证管理器。文档不再说密钥绝对不会
 
 Release 页面没有新建，也没有删除。名称仍是 `MMF v0.1.1-alpha (R2): Stability, Long-Form Orchestration & Fail-Soft Delivery`，发布记录目标是 `main`，附件数量为 0。页面上的提交号是 `f8a88f0`，不是 `6a87db8`。页面写着 main 比该 tag 超前 6 个提交，这 6 个提交是标签之后的产品更新和本次卫生记录，不是 tag 没有同步。
 
-因此不需要再移动 `v0.1.1-alpha`。源码包链接使用这个 tag，对应的是 `f8a88f0`。本修订提交只更新报告和历史清单标记，不改变 tag。
+以上是文档同步之前的核验。当时标签里的用户手册仍是旧文，随后的处理见第 12 节。
 
 备份文件 `mmf-ai-property-proposal-pre-cleanup-20261117.bundle` 仍在本机「正式发布版」目录，大小 4112106 字节。
+
+## 12. 用户文档与 Release 标签对齐
+
+标签 `v0.1.1-alpha` 原先指向清理后的合并提交，但该快照里的用户手册仍写着 Kimi 不能使用。main 上的说明已经改过。本次在该合并提交上只更新用户文档，没有改代码，也没有重写旧提交。
+
+修改文件：
+
+- `README.md`
+- `README_用户使用说明.md`
+- `docs/README_用户使用说明.md`
+- `docs/SECURITY.md`
+- `docs/MMF_产品介绍_一页版_V0.1.md`
+- `docs/MMF_产品介绍与试用说明_V0.1.md`
+
+修改内容：Kimi 改为可配置 API Key 的文字模型，接口 `https://api.moonshot.cn/v1`，示例模型 `kimi-k3`，不能生成图片。用户说明和 `SECURITY.md` 区分本机运行、云端模型调用和 Grok Bridge，并说明 Windows 凭证管理器不是绝对安全。
+
+标签记录：
+
+- 原 tag 对象：`495e5f6b05dd16b24ee3103f65068ebee9dcefd8`
+- 原 tag 提交：`f8a88f00a2d46e9bc7105ac2dd3dcc15712ea06b`
+- 新 tag 对象：`4bc406f8527d180d56e6400175a22cfe892dbde9`
+- 新 tag 提交：`1ca49ad89987d430a2ce3c359556fbe702698b39`
+
+原 tag 对象保存在本地引用 `refs/backup/v0.1.1-alpha-pre-doc-sync`，没有推送到远程。
+
+Release 页面仍是原来的 `v0.1.1-alpha`，没有新建，也没有删除。同步前附件数量为 0，没有二进制资产被替换或删除。这次没有重新打包。
+
+验证：上述 6 个文件与 main 的对应文件没有差异。标签快照中不再有「尚未完成官方认证」或「不能当作可用引擎」。提交只包含这 6 个 Markdown 文件。
